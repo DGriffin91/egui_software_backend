@@ -1,0 +1,32 @@
+[package]
+name = "egui_software_backend"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+egui = { version = "0.32", default-features = false }
+
+[dev-dependencies]
+egui = { version = "0.32", features = ["default_fonts"] }
+egui_demo_lib = { version = "0.32" }
+egui_extras = { version = "0.32", features = ["all_loaders"] }
+egui-winit = { version = "0.32", default-features = false }
+epaint_default_fonts = "0.32"
+
+softbuffer = { version = "0.4" }
+image = { version = "0.25", features = ["jpeg", "png"] }
+winit = { version = "0.30" }
+bytemuck = { version = "1.23" }
+
+
+# Enable optimization in debug mode
+[profile.dev]
+opt-level = 3
+
+# Enable high optimizations for dependencies
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace]
+# run with `cargo run -p bevy_example`
+members = ["examples/bevy_example"]
