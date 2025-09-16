@@ -39,6 +39,7 @@ opt-level = 3
 members = ["examples/bevy_example"]
 
 [features]
-default = ["test_render"]
+#default = ["test_render"]
 
+# test with `cargo test --features test_render`
 test_render = ["dep:bytemuck", "dep:image", "dep:egui_kittest"]

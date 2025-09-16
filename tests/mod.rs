@@ -1,12 +1,14 @@
-use image::{DynamicImage, ImageBuffer, Rgba};
-use nv_flip::FlipImageRgb8;
-
-#[cfg(test)]
+#[cfg(all(test, feature = "test_render"))]
 mod tests {
     use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
+    use image::{DynamicImage, ImageBuffer, Rgba};
+    use nv_flip::FlipImageRgb8;
 
-    use crate::*;
     use egui_kittest::{Harness, HarnessBuilder};
+
+    const PIXELS_PER_POINT: f32 = 1.0; // TODO test with multiple 
+    const ALLOW_RASTER_OPT: bool = false; // TODO test with/without
+    const CONVERT_TRIS_TO_RECTS: bool = false; // TODO test with/without
 
     #[test]
     pub fn compare_software_render_with_gpu() {
@@ -25,13 +27,17 @@ mod tests {
 
         // --- Render on GPU
         let mut harness = Harness::new(app());
+        harness.set_pixels_per_point(PIXELS_PER_POINT);
         harness.run();
         let gpu_render_image = harness.render().unwrap();
 
         // --- Render on CPU
-        let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA);
+        let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA)
+            .allow_raster_opt(ALLOW_RASTER_OPT)
+            .convert_tris_to_rects(CONVERT_TRIS_TO_RECTS);
         let mut harness = HarnessBuilder::default()
             .renderer(egui_software_render)
+            .with_pixels_per_point(PIXELS_PER_POINT)
             .build(app());
         harness.run();
         let cpu_render_image = harness.render().unwrap();
@@ -58,34 +64,34 @@ mod tests {
             .unwrap();
         flip_vis_img.save("tests/tmp/nv_flip.png").unwrap();
     }
-}
 
-fn nv_flip(
-    width: usize,
-    height: usize,
-    ref_img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
-    test_img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
-) -> (
-    nv_flip::FlipImageFloat,
-    ImageBuffer<image::Rgb<u8>, Vec<u8>>,
-) {
-    let ref_img = nv_flip_rgb8(width, height, ref_img);
-    let test_img = nv_flip_rgb8(width, height, test_img);
+    fn nv_flip(
+        width: usize,
+        height: usize,
+        ref_img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        test_img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    ) -> (
+        nv_flip::FlipImageFloat,
+        ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    ) {
+        let ref_img = nv_flip_rgb8(width, height, ref_img);
+        let test_img = nv_flip_rgb8(width, height, test_img);
 
-    let error_map = nv_flip::flip(ref_img, test_img, nv_flip::DEFAULT_PIXELS_PER_DEGREE);
-    let vis = error_map.apply_color_lut(&nv_flip::magma_lut());
-    let vis_img = image::RgbImage::from_raw(vis.width(), vis.height(), vis.to_vec()).unwrap();
-    (error_map, vis_img)
-}
+        let error_map = nv_flip::flip(ref_img, test_img, f32::MIN);
+        let vis = error_map.apply_color_lut(&nv_flip::magma_lut());
+        let vis_img = image::RgbImage::from_raw(vis.width(), vis.height(), vis.to_vec()).unwrap();
+        (error_map, vis_img)
+    }
 
-fn nv_flip_rgb8(
-    width: usize,
-    height: usize,
-    gpu_render_image: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
-) -> FlipImageRgb8 {
-    FlipImageRgb8::with_data(
-        width as u32,
-        height as u32,
-        &DynamicImage::ImageRgba8(gpu_render_image.clone()).to_rgb8(),
-    )
+    fn nv_flip_rgb8(
+        width: usize,
+        height: usize,
+        gpu_render_image: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    ) -> FlipImageRgb8 {
+        FlipImageRgb8::with_data(
+            width as u32,
+            height as u32,
+            &DynamicImage::ImageRgba8(gpu_render_image.clone()).to_rgb8(),
+        )
+    }
 }

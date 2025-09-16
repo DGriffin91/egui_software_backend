@@ -1,7 +1,7 @@
 pub struct EguiSoftwareRenderPlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPostUpdateSet, EguiRenderOutput};
-use egui_software_backend::EguiSoftwareRender;
+use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
 
 use crate::softbuffer_plugin::{FrameSurface, clear, present};
 
@@ -18,8 +18,14 @@ impl Plugin for EguiSoftwareRenderPlugin {
     }
 }
 
-#[derive(Default, Resource, Deref, DerefMut)]
+#[derive(Resource, Deref, DerefMut)]
 struct EguiSoftwareRenderResource(EguiSoftwareRender);
+
+impl Default for EguiSoftwareRenderResource {
+    fn default() -> Self {
+        EguiSoftwareRenderResource(EguiSoftwareRender::new(ColorFieldOrder::BGRA))
+    }
+}
 
 fn egui_render(
     mut contexts: Query<(&mut EguiContext, &mut EguiRenderOutput)>,
@@ -38,9 +44,6 @@ fn egui_render(
             &render_output.paint_jobs,
             &render_output.textures_delta,
             pixels_per_point,
-            None,
-            true,
-            true,
         );
         egui_software_render.blit_canvas_to_buffer(&mut buffer);
     }

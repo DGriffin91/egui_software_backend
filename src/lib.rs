@@ -28,7 +28,7 @@ pub enum ColorFieldOrder {
 pub struct EguiSoftwareRender {
     textures: HashMap<egui::TextureId, EguiTexture>,
     cached_primitives: HashMap<u32, CachedPrimitive>,
-    temp_px_mesh: egui::Mesh,
+    px_mesh: egui::Mesh,
     tiles_dim: [usize; 2],
     dirty_tiles: Vec<u8>,
     target_size: Vec2,
@@ -48,7 +48,7 @@ impl EguiSoftwareRender {
         EguiSoftwareRender {
             textures: Default::default(),
             cached_primitives: Default::default(),
-            temp_px_mesh: Default::default(),
+            px_mesh: Default::default(),
             tiles_dim: Default::default(),
             dirty_tiles: Default::default(),
             target_size: Default::default(),
@@ -150,12 +150,12 @@ impl EguiSoftwareRender {
             primitive,
         } in paint_jobs.iter()
         {
-            let mesh = match primitive {
-                egui::epaint::Primitive::Mesh(mesh) => mesh,
+            let input_mesh = match primitive {
+                egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
                 _ => todo!(),
             };
 
-            if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+            if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
                 continue;
             }
 
@@ -168,26 +168,7 @@ impl EguiSoftwareRender {
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
             let mut mesh_max = egui::Vec2::splat(-f32::MAX);
 
-            // TODO perf: does this reuse the allocations in temp_px_mesh?
-            self.temp_px_mesh.indices = mesh.indices.clone();
-            self.temp_px_mesh.vertices = mesh.vertices.clone();
-            self.temp_px_mesh.texture_id = mesh.texture_id;
-            let mesh = &mut self.temp_px_mesh;
-
-            for v in mesh.vertices.iter_mut() {
-                v.pos = v.pos * pixels_per_point;
-
-                match self.output_field_order {
-                    ColorFieldOrder::RGBA => (), // egui uses rgba
-                    ColorFieldOrder::BGRA => {
-                        let d = swizzle_rgba_bgra(v.color.to_array());
-                        v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
-                    }
-                }
-
-                mesh_min = mesh_min.min(v.pos.to_vec2());
-                mesh_max = mesh_max.max(v.pos.to_vec2());
-            }
+            self.prepare_px_mesh(pixels_per_point, input_mesh, &mut mesh_min, &mut mesh_max);
 
             let mesh_size = mesh_max - mesh_min;
             if mesh_size.x > 8192.0 || mesh_size.y > 8192.0 {
@@ -202,7 +183,7 @@ impl EguiSoftwareRender {
                     direct_draw_buffer,
                     self.convert_tris_to_rects_prop,
                     &clip_rect,
-                    mesh,
+                    &self.px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt_prop,
                 );
@@ -213,7 +194,7 @@ impl EguiSoftwareRender {
                     direct_draw_buffer,
                     self.convert_tris_to_rects_prop,
                     &clip_rect,
-                    mesh,
+                    &self.px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt_prop,
                 );
@@ -221,6 +202,41 @@ impl EguiSoftwareRender {
         }
 
         self.free_textures(textures_delta);
+    }
+
+    fn prepare_px_mesh(
+        &mut self,
+        pixels_per_point: f32,
+        mesh: &egui::Mesh,
+        mesh_min: &mut Vec2,
+        mesh_max: &mut Vec2,
+    ) {
+        // TODO perf: does this reuse the allocations in temp_px_mesh?
+        self.px_mesh.indices = mesh.indices.clone();
+        self.px_mesh.vertices = mesh.vertices.clone();
+        self.px_mesh.texture_id = mesh.texture_id;
+
+        for v in self.px_mesh.vertices.iter_mut() {
+            v.pos = v.pos * pixels_per_point;
+
+            // This could fix a tiny sub-pixel bias to match gpu rendering due to alias not matching due to things like:
+            // https://github.com/emilk/egui/blob/226bdc4c5bbb2230fb829e01b3fcb0460e741b34/crates/egui/src/widgets/color_picker.rs#L28
+            // On the GPU the grid jumps around if the pixels_per_point isn't 1.0.
+            // I'm not making this adjustment currently as it makes the text a tiny bit softer. Maybe we can just bias
+            // the rounding elsewhere.
+            // v.pos -= Vec2::splat(0.0001);
+
+            match self.output_field_order {
+                ColorFieldOrder::RGBA => (), // egui uses rgba
+                ColorFieldOrder::BGRA => {
+                    let d = swizzle_rgba_bgra(v.color.to_array());
+                    v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
+                }
+            }
+
+            *mesh_min = mesh_min.min(v.pos.to_vec2());
+            *mesh_max = mesh_max.max(v.pos.to_vec2());
+        }
     }
 
     fn render_prims_to_canvas(
@@ -236,12 +252,12 @@ impl EguiSoftwareRender {
             },
         ) in paint_jobs.iter().enumerate()
         {
-            let mesh = match primitive {
-                egui::epaint::Primitive::Mesh(mesh) => mesh,
+            let input_mesh = match primitive {
+                egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
                 _ => todo!(),
             };
 
-            if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+            if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
                 continue;
             }
 
@@ -254,26 +270,7 @@ impl EguiSoftwareRender {
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
             let mut mesh_max = egui::Vec2::splat(-f32::MAX);
 
-            // TODO perf: does this reuse the allocations in temp_px_mesh?
-            self.temp_px_mesh.indices = mesh.indices.clone();
-            self.temp_px_mesh.vertices = mesh.vertices.clone();
-            self.temp_px_mesh.texture_id = mesh.texture_id;
-            let mesh = &mut self.temp_px_mesh;
-
-            for v in mesh.vertices.iter_mut() {
-                v.pos = v.pos * pixels_per_point;
-
-                match self.output_field_order {
-                    ColorFieldOrder::RGBA => (), // egui uses rgba
-                    ColorFieldOrder::BGRA => {
-                        let d = swizzle_rgba_bgra(v.color.to_array());
-                        v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
-                    }
-                }
-
-                mesh_min = mesh_min.min(v.pos.to_vec2());
-                mesh_max = mesh_max.max(v.pos.to_vec2());
-            }
+            self.prepare_px_mesh(pixels_per_point, input_mesh, &mut mesh_min, &mut mesh_max);
 
             let cropped_min = mesh_min.max(clip_rect.min.to_vec2());
             let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
@@ -289,12 +286,12 @@ impl EguiSoftwareRender {
                 hasher.hash_wrap(clip_rect.min.y.to_bits());
                 hasher.hash_wrap(clip_rect.max.x.to_bits());
                 hasher.hash_wrap(clip_rect.max.y.to_bits());
-                hasher.hash_wrap(match mesh.texture_id {
+                hasher.hash_wrap(match self.px_mesh.texture_id {
                     egui::TextureId::Managed(id) => id as u32,
                     egui::TextureId::User(id) => id as u32 + 9358476,
                 });
-                for ind in &mesh.indices {
-                    let v = mesh.vertices[*ind as usize];
+                for ind in &self.px_mesh.indices {
+                    let v = self.px_mesh.vertices[*ind as usize];
 
                     // Tried to do this to avoid full redraws when moving a window but it was resulting in some
                     // meshes to be matches incorrectly in the ui gradient portion of the egui color test:
@@ -308,7 +305,7 @@ impl EguiSoftwareRender {
                     hasher.hash(u32::from_le_bytes(v.color.to_array()));
                     hasher.fnv_wrap();
                 }
-                hasher.hash_wrap(mesh.indices.len() as u32);
+                hasher.hash_wrap(self.px_mesh.indices.len() as u32);
                 hasher.finalize()
             };
 
@@ -361,7 +358,7 @@ impl EguiSoftwareRender {
                         &mut buffer_ref,
                         self.convert_tris_to_rects_prop,
                         &clip_rect,
-                        mesh,
+                        &self.px_mesh,
                         offset,
                         self.allow_raster_opt_prop,
                     );
@@ -372,7 +369,7 @@ impl EguiSoftwareRender {
                         &mut buffer_ref,
                         self.convert_tris_to_rects_prop,
                         &clip_rect,
-                        mesh,
+                        &self.px_mesh,
                         offset,
                         self.allow_raster_opt_prop,
                     );
