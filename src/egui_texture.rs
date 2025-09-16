@@ -84,11 +84,10 @@ pub fn u8x4_to_vec4(v: &[u8; 4]) -> Vec4 {
     )
 }
 
+// https://github.com/emilk/egui/blob/226bdc4c5bbb2230fb829e01b3fcb0460e741b34/crates/egui/src/lib.rs#L162
 #[inline(always)]
 pub fn egui_blend(src: &Vec4, dst: &Vec4) -> Vec4 {
-    let mut color = dst * (1.0 - src.w) + src;
-    color.w = src.w + dst.w;
-    color
+    dst * (1.0 - src.w) + src
 }
 
 /// transforms 4 bytes RGBA into 8 bytes 0R0G0B0A
@@ -124,9 +123,7 @@ pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let res = (res8 >> 8) & 0x00FF00FF00FF00FF;
     let res = (res | (res >> 8)) & 0x0000FFFF0000FFFF;
     let res = res | (res >> 16);
-    let res =
-        (res & 0x0000000000FFFFFFF) as u32 | (((src[3].saturating_add(dst[3])) as u32) << 24u32);
-    u32::to_le_bytes(res)
+    u32::to_le_bytes((res & 0x00000000FFFFFFFFF) as u32)
 }
 
 #[inline(always)]
@@ -139,29 +136,31 @@ pub fn egui_blend_u8_old(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
         return src;
     }
 
-    let mut c = unorm_mult3x1(
-        [dst[0] as u32, dst[1] as u32, dst[2] as u32],
+    let mut c = unorm_mult4x1(
+        [dst[0] as u32, dst[1] as u32, dst[2] as u32, dst[3] as u32],
         255u32.saturating_sub(src[3] as u32),
     );
     c = [
         c[0] + (src[0] as u32),
         c[1] + (src[1] as u32),
         c[2] + (src[2] as u32),
+        c[3] + (src[3] as u32),
     ];
     [
         (c[0].min(255) as u8),
         (c[1].min(255) as u8),
         (c[2].min(255) as u8),
-        src[3].saturating_add(dst[3]),
+        (c[3].min(255) as u8),
     ]
 }
 
 #[inline(always)]
-pub fn unorm_mult3x1(a: [u32; 3], b: u32) -> [u32; 3] {
+pub fn unorm_mult4x1(a: [u32; 4], b: u32) -> [u32; 4] {
     [
         unorm_mult(a[0], b),
         unorm_mult(a[1], b),
         unorm_mult(a[2], b),
+        unorm_mult(a[3], b),
     ]
 }
 
