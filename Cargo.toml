@@ -8,6 +8,8 @@ egui = { version = "0.32", default-features = false }
 
 [dev-dependencies]
 egui = { version = "0.32", features = ["default_fonts"] }
+eframe = "0.32"
+egui_kittest = { version = "0.32", features = ["snapshot", "wgpu"] }
 egui_demo_lib = { version = "0.32" }
 egui_extras = { version = "0.32", features = ["all_loaders"] }
 egui-winit = { version = "0.32", default-features = false }
@@ -17,6 +19,7 @@ softbuffer = { version = "0.4" }
 image = { version = "0.25", features = ["jpeg", "png"] }
 winit = { version = "0.30" }
 bytemuck = { version = "1.23" }
+nv-flip = "0.1.2"
 
 
 # Enable optimization in debug mode

@@ -1,4 +1,5 @@
 /target
+/tests/tmp
 .idea
 
 Cargo.lock
