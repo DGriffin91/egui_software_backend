@@ -61,8 +61,7 @@ where
 #[inline(always)]
 pub fn raster_tri_no_depth_no_backface_cull<R, const SUBPIX_BITS: i32>(
     bounds: [i32; 4],
-    target_size: Vec2,
-    uv_tri: [Vec2; 3],
+    scr_tri: [Vec2; 3],
     mut raster: R,
 ) where
     R: PixelRaster,
@@ -79,9 +78,9 @@ pub fn raster_tri_no_depth_no_backface_cull<R, const SUBPIX_BITS: i32>(
         bounds[3] as i64,
     ];
 
-    let scr0 = vec2_to_ivec2(uv_tri[0] * target_size * fsubpix);
-    let scr1 = vec2_to_ivec2(uv_tri[1] * target_size * fsubpix);
-    let scr2 = vec2_to_ivec2(uv_tri[2] * target_size * fsubpix);
+    let scr0 = vec2_to_ivec2(scr_tri[0] * fsubpix);
+    let scr1 = vec2_to_ivec2(scr_tri[1] * fsubpix);
+    let scr2 = vec2_to_ivec2(scr_tri[2] * fsubpix);
 
     let area = orient2d_hp(&scr0, &scr1, &scr2);
     if area == 0 {

@@ -11,7 +11,6 @@ use crate::{
 
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     textures: &HashMap<egui::TextureId, EguiTexture>,
-    target_size: Vec2,
     buffer: &mut BufferMutRef,
     convert_tris_to_rects: bool,
     clip_rect: &egui::Rect,
@@ -98,10 +97,11 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         let color1 = u8x4_to_vec4(&color1_u8x4);
         let color2 = u8x4_to_vec4(&color2_u8x4);
 
-        let uv_v0 = vec2(tri[0].pos.x, tri[0].pos.y) / target_size;
-        let uv_v1 = vec2(tri[1].pos.x, tri[1].pos.y) / target_size;
-        let uv_v2 = vec2(tri[2].pos.x, tri[2].pos.y) / target_size;
-        let uv_tri = [uv_v0, uv_v1, uv_v2];
+        let scr_tri = [
+            tri[0].pos.to_vec2(),
+            tri[1].pos.to_vec2(),
+            tri[2].pos.to_vec2(),
+        ];
 
         let uv0 = vec2(tri[0].uv.x, tri[0].uv.y);
         let uv1 = vec2(tri[1].uv.x, tri[1].uv.y);
@@ -110,8 +110,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         if !allow_raster_opt {
             raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
                 clip_bounds,
-                target_size,
-                uv_tri,
+                scr_tri,
                 with_bary(|x, y, b0, b1| {
                     let b2 = 1.0 - b0 - b1;
                     let uv = b0 * uv0 + b1 * uv1 + b2 * uv2;
@@ -230,11 +229,10 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 continue;
             } else {
                 draw_solid_tri::<SUBPIX_BITS>(
-                    &target_size,
                     buffer,
                     const_tri_color_u8x4,
                     &clip_bounds,
-                    &uv_tri,
+                    &scr_tri,
                     requires_alpha_blending,
                 );
             }
@@ -243,8 +241,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             if requires_alpha_blending {
                 raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
                     clip_bounds,
-                    target_size,
-                    uv_tri,
+                    scr_tri,
                     with_bary(|x, y, b0, b1| {
                         let b2 = 1.0 - b0 - b1;
                         let vert_color = b0 * color0 + b1 * color1 + b2 * color2;
@@ -257,8 +254,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             } else {
                 raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
                     clip_bounds,
-                    target_size,
-                    uv_tri,
+                    scr_tri,
                     with_bary(|x, y, b0, b1| {
                         let b2 = 1.0 - b0 - b1;
                         let vert_color = b0 * color0 + b1 * color1 + b2 * color2;
@@ -287,8 +283,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             } else {
                 raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
                     clip_bounds,
-                    target_size,
-                    uv_tri,
+                    scr_tri,
                     with_bary(|x, y, b0, b1| {
                         let b2 = 1.0 - b0 - b1;
                         let uv = b0 * uv0 + b1 * uv1 + b2 * uv2;
@@ -305,8 +300,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             // This is the standard full version sans shortcuts. Everything could be rendered using just this.
             raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
                 clip_bounds,
-                target_size,
-                uv_tri,
+                scr_tri,
                 with_bary(|x, y, b0, b1| {
                     let b2 = 1.0 - b0 - b1;
                     let uv = b0 * uv0 + b1 * uv1 + b2 * uv2;
@@ -378,19 +372,17 @@ fn draw_textured_rect(
 }
 
 fn draw_solid_tri<const SUBPIX_BITS: i32>(
-    target_size: &Vec2,
     buffer: &mut BufferMutRef,
     const_tri_color_u8x4: [u8; 4],
     clip_bounds: &[i32; 4],
-    uv_tri: &[Vec2; 3],
+    scr_tri: &[Vec2; 3],
     requires_alpha_blending: bool,
 ) {
     // TODO is scanline faster when barycentrics are not needed?
     if requires_alpha_blending {
         raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
             *clip_bounds,
-            *target_size,
-            *uv_tri,
+            *scr_tri,
             no_bary(|x, y| {
                 let pixel = buffer.get_mut_clamped(x as usize, y as usize);
                 let src = const_tri_color_u8x4;
@@ -400,8 +392,7 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
     } else {
         raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
             *clip_bounds,
-            *target_size,
-            *uv_tri,
+            *scr_tri,
             no_bary(|x, y| {
                 *buffer.get_mut_clamped(x as usize, y as usize) = const_tri_color_u8x4;
             }),

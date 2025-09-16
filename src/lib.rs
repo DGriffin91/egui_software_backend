@@ -183,7 +183,6 @@ impl EguiSoftwareRender {
             if render_in_low_precision {
                 draw_egui_mesh::<2>(
                     &self.textures,
-                    self.target_size,
                     direct_draw_buffer,
                     self.convert_tris_to_rects,
                     &clip_rect,
@@ -194,7 +193,6 @@ impl EguiSoftwareRender {
             } else {
                 draw_egui_mesh::<8>(
                     &self.textures,
-                    self.target_size,
                     direct_draw_buffer,
                     self.convert_tris_to_rects,
                     &clip_rect,
@@ -356,7 +354,6 @@ impl EguiSoftwareRender {
                     // Seems to not be an issue in direct draw? Seems like a bug.
                     draw_egui_mesh::<2>(
                         &self.textures,
-                        self.target_size,
                         &mut buffer_ref,
                         self.convert_tris_to_rects,
                         &clip_rect,
@@ -367,7 +364,6 @@ impl EguiSoftwareRender {
                 } else {
                     draw_egui_mesh::<8>(
                         &self.textures,
-                        self.target_size,
                         &mut buffer_ref,
                         self.convert_tris_to_rects,
                         &clip_rect,
