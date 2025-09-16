@@ -14,7 +14,7 @@ impl Hash32 {
 
     #[inline(always)]
     pub fn hash(&mut self, v: u32) {
-        self.0 ^= v;
+        self.0 ^= hash32(v);
     }
 
     #[inline(always)]
@@ -28,7 +28,7 @@ impl Hash32 {
 }
 
 #[inline(always)]
-pub fn hash32(x: u32) -> u32 {
+fn hash32(x: u32) -> u32 {
     // from https://nullprogram.com/blog/2018/07/31/
     let mut x = x ^ (x >> 16);
     x = x.overflowing_mul(0x7feb352d).0;
