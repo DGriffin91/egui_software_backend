@@ -14,7 +14,7 @@ epaint_default_fonts = "0.32"
 bevy = { version = "0.16" }
 bevy_egui = { version = "0.36" }
 
-bytemuck = { version = "1.23" }
-
 softbuffer = { version = "0.4" }
 image = { version = "0.25", features = ["jpeg", "png"] }
+bytemuck = { version = "1.23" }
+argh = "0.1"

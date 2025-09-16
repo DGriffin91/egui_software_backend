@@ -24,6 +24,7 @@ image = { version = "0.25", features = ["jpeg", "png"] }
 winit = { version = "0.30" }
 bytemuck = { version = "1.23" }
 nv-flip = "0.1.2"
+argh = "0.1"
 
 
 # Enable optimization in debug mode

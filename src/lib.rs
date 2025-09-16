@@ -97,6 +97,10 @@ impl EguiSoftwareRender {
     ) {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
 
+        assert!(width > 0);
+        assert!(height > 0);
+        assert!(pixels_per_point > 0.0);
+
         self.redraw_everything_this_frame = self.canvas.resize(width, height);
 
         if self.redraw_everything_this_frame {
@@ -460,7 +464,7 @@ impl EguiSoftwareRender {
         //     *pixel = egui_blend_u8(*src, *pixel);
         // });
 
-        if self.canvas.data.len() == 0 {
+        if self.canvas.data.is_empty() {
             panic!(
                 "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render()"
             )
