@@ -6,6 +6,10 @@ edition = "2024"
 [dependencies]
 egui = { version = "0.32", default-features = false }
 
+egui_kittest = { version = "0.32", optional = true }
+image = { version = "0.25", optional = true }
+bytemuck = { version = "1.23", optional = true }
+
 [dev-dependencies]
 egui = { version = "0.32", features = ["default_fonts"] }
 eframe = "0.32"
@@ -33,3 +37,8 @@ opt-level = 3
 [workspace]
 # run with `cargo run -p bevy_example`
 members = ["examples/bevy_example"]
+
+[features]
+default = ["test_render"]
+
+test_render = ["dep:bytemuck", "dep:image", "dep:egui_kittest"]

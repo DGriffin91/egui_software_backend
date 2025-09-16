@@ -1,72 +1,45 @@
-use bytemuck::cast_slice;
 use image::{DynamicImage, ImageBuffer, Rgba};
 use nv_flip::FlipImageRgb8;
 
 #[cfg(test)]
 mod tests {
-    use egui_software_backend::{BufferMutRef, EguiSoftwareRender};
+    use egui_software_backend::EguiSoftwareRender;
 
     use crate::*;
-    use egui_kittest::Harness;
+    use egui_kittest::{Harness, HarnessBuilder};
 
     #[test]
     pub fn compare_software_render_with_gpu() {
-        let app = |ctx: &egui::Context| {
+        fn app() -> impl FnMut(&egui::Context) {
             let mut egui_demo = egui_demo_lib::DemoWindows::default();
-            egui_demo.ui(&ctx);
-        };
+            move |ctx: &egui::Context| {
+                egui_demo.ui(&ctx);
 
-        // -----------------------------------------
-        // --- Render on GPU with Harness & wgpu ---
-        // -----------------------------------------
-        let mut harness = Harness::new(app);
+                //egui::CentralPanel::default().show(ctx, |ui| {
+                //    #[allow(const_item_mutation)]
+                //    ui.color_edit_button_srgba(&mut egui::Color32::TRANSPARENT);
+                //    ui.end_row();
+                //});
+            }
+        }
+
+        // --- Render on GPU
+        let mut harness = Harness::new(app());
         harness.run();
+        let gpu_render_image = harness.render().unwrap();
+
+        // --- Render on CPU
+        let egui_software_render = EguiSoftwareRender::default();
+        let mut harness = HarnessBuilder::default()
+            .renderer(egui_software_render)
+            .build(app());
+        harness.run();
+        let cpu_render_image = harness.render().unwrap();
+
+        // Compare with FLIP
         let size = harness.ctx.screen_rect();
         let width = size.width() as usize;
         let height = size.height() as usize;
-        let gpu_render_image = harness.render().unwrap();
-
-        // --------------------------------------------------
-        // --- Render on CPU with software render backend ---
-        // --------------------------------------------------
-
-        let ctx = egui::Context::default();
-        let mut egui_software_render = EguiSoftwareRender::default();
-        let buffer = &mut vec![0u32; width * height];
-
-        for _ in 0..60 {
-            let full_output = ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(harness.ctx.screen_rect()),
-                    ..Default::default()
-                },
-                app,
-            );
-
-            let paint_jobs =
-                ctx.tessellate(full_output.shapes.clone(), full_output.pixels_per_point);
-
-            buffer.fill(0); // CLEAR
-            let mut buffer_ref = BufferMutRef::new(
-                bytemuck::cast_slice_mut(&mut buffer[..]),
-                width as usize,
-                height as usize,
-            );
-
-            egui_software_render.render(
-                width,
-                height,
-                &paint_jobs,
-                &full_output.textures_delta,
-                full_output.pixels_per_point,
-                Some(&mut buffer_ref),
-                false,
-                false,
-            );
-            //egui_software_render.blit_canvas_to_buffer(&mut buffer_ref);
-        }
-
-        let cpu_render_image = bgra_u32_to_image(width, height, buffer.to_vec());
 
         let (error_map, flip_vis_img) =
             nv_flip(width, height, &gpu_render_image, &cpu_render_image);
@@ -115,21 +88,4 @@ fn nv_flip_rgb8(
         height as u32,
         &DynamicImage::ImageRgba8(gpu_render_image.clone()).to_rgb8(),
     )
-}
-
-fn bgra_u32_to_image(
-    width: usize,
-    height: usize,
-    bgra: Vec<u32>,
-) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
-    ImageBuffer::<_, _>::from_raw(
-        width as u32,
-        height as u32,
-        cast_slice::<u32, [u8; 4]>(&bgra)
-            .iter()
-            .map(|p| [p[2], p[1], p[0], p[3]])
-            .flatten()
-            .collect::<Vec<_>>(),
-    )
-    .unwrap()
 }

@@ -12,6 +12,8 @@ pub mod egui_texture;
 pub mod hash;
 pub mod raster;
 pub mod render;
+#[cfg(feature = "test_render")]
+pub mod test_render;
 pub mod vec4;
 
 const TILE_SIZE: usize = 64;
@@ -587,6 +589,8 @@ pub struct BufferMutRef<'a> {
 
 impl<'a> BufferMutRef<'a> {
     pub fn new(data: &'a mut [[u8; 4]], width: usize, height: usize) -> Self {
+        assert!(width > 0);
+        assert!(height > 0);
         BufferMutRef {
             data,
             width,
@@ -628,15 +632,4 @@ impl<'a> BufferRef<'a> {
     pub fn get_ref(&self, x: usize, y: usize) -> &[u8; 4] {
         &self.data[x + y * self.width]
     }
-}
-
-#[allow(unused)]
-pub fn as_mut_slice_of_u8x4(slice: &mut [u32]) -> &mut [[u8; 4]] {
-    assert_eq!(size_of::<u32>(), size_of::<[u8; 4]>());
-    assert!(align_of::<u32>() >= align_of::<[u8; 4]>());
-    let parents: &mut [[u8; 4]] =
-        unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; 4], slice.len()) };
-    // Alternatively:
-    //let slice: &mut [[u8; 4]] = unsafe { &mut *((slice.as_mut_slice() as *mut [u32]) as *mut [[u8; 4]]) };
-    parents
 }
