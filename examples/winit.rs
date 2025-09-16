@@ -1,5 +1,6 @@
 // Based on: https://github.com/rust-windowing/softbuffer/blob/046de9228d89369151599f3f50dc4b75bd5e522b/examples/winit.rs
 
+use egui_demo_lib::ColorTest;
 use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -23,6 +24,7 @@ const RENDER_DIRECT: bool = false; // TODO make env arg
 
 fn main() {
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
+    let mut egui_color_test = ColorTest::default();
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA);
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
@@ -106,6 +108,12 @@ fn main() {
 
                     let full_output = app.egui_ctx.run(raw_input, |ctx| {
                         egui_demo.ui(ctx);
+
+                        egui::Window::new("Color Test").show(ctx, |ui| {
+                            egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+                                egui_color_test.ui(ui);
+                            });
+                        });
                     });
 
                     let clipped_primitives = app

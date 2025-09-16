@@ -553,7 +553,13 @@ impl EguiSoftwareRender {
                 self.textures.insert(
                     *id,
                     EguiTexture {
-                        data: pixels.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                        data: pixels
+                            .iter()
+                            .map(|p| match self.output_field_order {
+                                ColorFieldOrder::RGBA => p.to_array(),
+                                ColorFieldOrder::BGRA => swizzle_rgba_bgra(p.to_array()),
+                            })
+                            .collect::<Vec<_>>(),
                         width_extent: size[0] as i32 - 1,
                         height_extent: size[1] as i32 - 1,
                         width: size[0],
