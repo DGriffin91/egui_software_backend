@@ -18,20 +18,63 @@ pub mod vec4;
 
 const TILE_SIZE: usize = 64;
 
-#[derive(Default)]
+#[derive(Copy, Clone, Default)]
+pub enum ColorFieldOrder {
+    #[default]
+    RGBA,
+    BGRA,
+}
+
 pub struct EguiSoftwareRender {
-    pub textures: HashMap<egui::TextureId, EguiTexture>,
-    pub cached_primitives: HashMap<u32, CachedPrimitive>,
-    pub temp_px_mesh: egui::Mesh,
-    pub tiles_dim: [usize; 2],
-    pub dirty_tiles: Vec<u8>,
-    pub canvas: Canvas,
-    pub target_size: Vec2,
-    pub prims_updated_this_frame: usize,
-    pub redraw_everything_this_frame: bool,
+    textures: HashMap<egui::TextureId, EguiTexture>,
+    cached_primitives: HashMap<u32, CachedPrimitive>,
+    temp_px_mesh: egui::Mesh,
+    tiles_dim: [usize; 2],
+    dirty_tiles: Vec<u8>,
+    target_size: Vec2,
+    prims_updated_this_frame: usize,
+    output_field_order: ColorFieldOrder,
+    canvas: Canvas,
+    redraw_everything_this_frame: bool,
+    convert_tris_to_rects_prop: bool,
+    allow_raster_opt_prop: bool,
 }
 
 impl EguiSoftwareRender {
+    /// # Arguments
+    /// * `output_field_order` - egui textures and vertex colors will be swizzled before rendering to match the desired
+    /// output buffer order.
+    pub fn new(output_field_order: ColorFieldOrder) -> Self {
+        EguiSoftwareRender {
+            textures: Default::default(),
+            cached_primitives: Default::default(),
+            temp_px_mesh: Default::default(),
+            tiles_dim: Default::default(),
+            dirty_tiles: Default::default(),
+            target_size: Default::default(),
+            prims_updated_this_frame: Default::default(),
+            output_field_order,
+            canvas: Default::default(),
+            redraw_everything_this_frame: Default::default(),
+            convert_tris_to_rects_prop: true,
+            allow_raster_opt_prop: true,
+        }
+    }
+
+    /// If true: attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
+    ///   Things *should* look the same with this set to `true` while rendering faster.
+    pub fn convert_tris_to_rects(mut self, set: bool) -> Self {
+        self.convert_tris_to_rects_prop = set;
+        self
+    }
+
+    /// If false: Rasterize everything with triangles, always calculate vertex colors, uvs,
+    ///   use bilinear everywhere, etc... Things *should* look the same with this set to `true` while rendering faster.
+    pub fn allow_raster_opt(mut self, set: bool) -> Self {
+        self.allow_raster_opt_prop = set;
+        self
+    }
+
     /// Renders the given paint jobs to a buffer.
     ///
     /// # Arguments
@@ -44,8 +87,6 @@ impl EguiSoftwareRender {
     ///   This is slower and mainly intended for testing.
     /// * `try_convert_tris_to_rects` - If `true`: attempts to optimize by converting suitable triangle pairs into
     ///   rectangles for faster rendering. Things *should* look the same with this set to `true` while rendering faster.
-    /// * `allow_raster_opt` - If `false`: Rasterize everything with triangles, always calculate vertex colors, uvs,
-    ///   use bilinear everywhere, etc... Things *should* look the same with this set to `true` while rendering faster.
     pub fn render(
         &mut self,
         width: usize,
@@ -53,9 +94,6 @@ impl EguiSoftwareRender {
         paint_jobs: &[egui::ClippedPrimitive],
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
-        mut direct_draw_buffer: Option<&mut BufferMutRef>,
-        try_convert_tris_to_rects: bool,
-        allow_raster_opt: bool,
     ) {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
 
@@ -75,40 +113,120 @@ impl EguiSoftwareRender {
 
         self.set_textures(textures_delta);
 
-        self.render_prims(
-            paint_jobs,
-            pixels_per_point,
-            &mut direct_draw_buffer,
-            try_convert_tris_to_rects,
-            allow_raster_opt,
-        );
+        self.render_prims_to_canvas(paint_jobs, pixels_per_point);
 
         self.update_dirty_tiles();
         self.clear_unused_cached_prims();
 
-        if direct_draw_buffer.is_none() {
-            let mut reinit_canvas = self.redraw_everything_this_frame;
+        let mut reinit_canvas = self.redraw_everything_this_frame;
 
-            if self.prims_updated_this_frame > 0 {
-                // TODO use tiles
-                reinit_canvas = true;
+        if self.prims_updated_this_frame > 0 {
+            // TODO use tiles
+            reinit_canvas = true;
+        }
+
+        if reinit_canvas {
+            self.update_canvas_from_cached();
+        }
+
+        self.free_textures(textures_delta);
+    }
+
+    pub fn render_direct(
+        &mut self,
+        direct_draw_buffer: &mut BufferMutRef,
+        paint_jobs: &[egui::ClippedPrimitive],
+        textures_delta: &egui::TexturesDelta,
+        pixels_per_point: f32,
+    ) {
+        self.set_textures(textures_delta);
+        self.target_size = vec2(
+            direct_draw_buffer.width as f32,
+            direct_draw_buffer.height as f32,
+        );
+
+        for egui::ClippedPrimitive {
+            clip_rect,
+            primitive,
+        } in paint_jobs.iter()
+        {
+            let mesh = match primitive {
+                egui::epaint::Primitive::Mesh(mesh) => mesh,
+                _ => todo!(),
+            };
+
+            if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+                continue;
             }
 
-            if reinit_canvas {
-                self.update_canvas_from_cached();
+            // TODO not sure why +1.0 is needed here instead of +0.5, was cropping off some stuff
+            let clip_rect = egui::Rect {
+                min: clip_rect.min * pixels_per_point,
+                max: clip_rect.max * pixels_per_point,
+            };
+
+            let mut mesh_min = egui::Vec2::splat(f32::MAX);
+            let mut mesh_max = egui::Vec2::splat(-f32::MAX);
+
+            // TODO perf: does this reuse the allocations in temp_px_mesh?
+            self.temp_px_mesh.indices = mesh.indices.clone();
+            self.temp_px_mesh.vertices = mesh.vertices.clone();
+            self.temp_px_mesh.texture_id = mesh.texture_id;
+            let mesh = &mut self.temp_px_mesh;
+
+            for v in mesh.vertices.iter_mut() {
+                v.pos = v.pos * pixels_per_point;
+
+                match self.output_field_order {
+                    ColorFieldOrder::RGBA => (), // egui uses rgba
+                    ColorFieldOrder::BGRA => {
+                        let d = swizzle_rgba_bgra(v.color.to_array());
+                        v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
+                    }
+                }
+
+                mesh_min = mesh_min.min(v.pos.to_vec2());
+                mesh_max = mesh_max.max(v.pos.to_vec2());
+            }
+
+            let mesh_size = mesh_max - mesh_min;
+            if mesh_size.x > 8192.0 || mesh_size.y > 8192.0 {
+                // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
+                continue;
+            }
+            let render_in_low_precision = mesh_size.x > 4096.0 || mesh_size.y > 4096.0;
+            if render_in_low_precision {
+                draw_egui_mesh::<2>(
+                    &self.textures,
+                    self.target_size,
+                    direct_draw_buffer,
+                    self.convert_tris_to_rects_prop,
+                    &clip_rect,
+                    mesh,
+                    Vec2::ZERO,
+                    self.allow_raster_opt_prop,
+                );
+            } else {
+                draw_egui_mesh::<8>(
+                    &self.textures,
+                    self.target_size,
+                    direct_draw_buffer,
+                    self.convert_tris_to_rects_prop,
+                    &clip_rect,
+                    mesh,
+                    Vec2::ZERO,
+                    self.allow_raster_opt_prop,
+                );
             }
         }
 
         self.free_textures(textures_delta);
     }
 
-    fn render_prims(
+    fn render_prims_to_canvas(
         &mut self,
         paint_jobs: &[egui::ClippedPrimitive],
         pixels_per_point: f32,
-        direct_draw_buffer: &mut Option<&mut BufferMutRef>,
-        find_rects: bool,
-        allow_raster_opt: bool,
     ) {
         for (
             prim_idx,
@@ -144,43 +262,17 @@ impl EguiSoftwareRender {
 
             for v in mesh.vertices.iter_mut() {
                 v.pos = v.pos * pixels_per_point;
-                let d = swizzle_rgba_bgra(v.color.to_array());
-                v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
+
+                match self.output_field_order {
+                    ColorFieldOrder::RGBA => (), // egui uses rgba
+                    ColorFieldOrder::BGRA => {
+                        let d = swizzle_rgba_bgra(v.color.to_array());
+                        v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
+                    }
+                }
+
                 mesh_min = mesh_min.min(v.pos.to_vec2());
                 mesh_max = mesh_max.max(v.pos.to_vec2());
-            }
-
-            if let Some(direct_draw_buffer) = direct_draw_buffer.as_mut() {
-                let mesh_size = mesh_max - mesh_min;
-                if mesh_size.x > 8192.0 || mesh_size.y > 8192.0 {
-                    // TODO it tries to make giant buffers in the first couple frames initially for some reason.
-                    continue;
-                }
-                let render_in_low_precision = mesh_size.x > 4096.0 || mesh_size.y > 4096.0;
-                if render_in_low_precision {
-                    draw_egui_mesh::<2>(
-                        &self.textures,
-                        self.target_size,
-                        direct_draw_buffer,
-                        find_rects,
-                        &clip_rect,
-                        mesh,
-                        Vec2::ZERO,
-                        allow_raster_opt,
-                    );
-                } else {
-                    draw_egui_mesh::<8>(
-                        &self.textures,
-                        self.target_size,
-                        direct_draw_buffer,
-                        find_rects,
-                        &clip_rect,
-                        mesh,
-                        Vec2::ZERO,
-                        allow_raster_opt,
-                    );
-                }
-                continue;
             }
 
             let cropped_min = mesh_min.max(clip_rect.min.to_vec2());
@@ -233,7 +325,7 @@ impl EguiSoftwareRender {
                 let height = (cropped_max.y - cropped_min.y + 1.0) as usize;
 
                 if width > 8192 || height > 8192 {
-                    // TODO it tries to make giant buffers in the first couple frames initially for some reason.
+                    // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
                     continue;
                 }
 
@@ -267,22 +359,22 @@ impl EguiSoftwareRender {
                         &self.textures,
                         self.target_size,
                         &mut buffer_ref,
-                        find_rects,
+                        self.convert_tris_to_rects_prop,
                         &clip_rect,
                         mesh,
                         offset,
-                        allow_raster_opt,
+                        self.allow_raster_opt_prop,
                     );
                 } else {
                     draw_egui_mesh::<8>(
                         &self.textures,
                         self.target_size,
                         &mut buffer_ref,
-                        find_rects,
+                        self.convert_tris_to_rects_prop,
                         &clip_rect,
                         mesh,
                         offset,
-                        allow_raster_opt,
+                        self.allow_raster_opt_prop,
                     );
                 }
                 self.prims_updated_this_frame += 1;
@@ -451,7 +543,12 @@ impl EguiSoftwareRender {
                         for x in 0..size[0] {
                             let src_pos = x + y * size[0];
                             let dest_pos = (x + pos[0]) + (y + pos[1]) * texture.width;
-                            texture.data[dest_pos] = swizzle_rgba_bgra(pixels[src_pos].to_array());
+                            texture.data[dest_pos] = match self.output_field_order {
+                                ColorFieldOrder::RGBA => pixels[src_pos].to_array(),
+                                ColorFieldOrder::BGRA => {
+                                    swizzle_rgba_bgra(pixels[src_pos].to_array())
+                                }
+                            };
                         }
                     }
                 }
@@ -459,10 +556,7 @@ impl EguiSoftwareRender {
                 self.textures.insert(
                     *id,
                     EguiTexture {
-                        data: pixels
-                            .iter()
-                            .map(|p| swizzle_rgba_bgra(p.to_array()))
-                            .collect::<Vec<_>>(),
+                        data: pixels.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
                         width_extent: size[0] as i32 - 1,
                         height_extent: size[1] as i32 - 1,
                         width: size[0],

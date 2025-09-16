@@ -1,6 +1,6 @@
 // Based on: https://github.com/rust-windowing/softbuffer/blob/046de9228d89369151599f3f50dc4b75bd5e522b/examples/winit.rs
 
-use egui_software_backend::{BufferMutRef, EguiSoftwareRender};
+use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -19,9 +19,11 @@ struct AppState {
     egui_winit: egui_winit::State,
 }
 
+const RENDER_DIRECT: bool = false; // TODO make env arg
+
 fn main() {
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
-    let mut egui_software_render = EguiSoftwareRender::default();
+    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA);
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -110,25 +112,34 @@ fn main() {
                         .egui_ctx
                         .tessellate(full_output.shapes, full_output.pixels_per_point);
 
-                    egui_software_render.render(
-                        width as usize,
-                        height as usize,
-                        &clipped_primitives,
-                        &full_output.textures_delta,
-                        full_output.pixels_per_point,
-                        None,
-                        true,
-                        true,
-                    );
-
                     let mut buffer = app.surface.buffer_mut().unwrap();
                     buffer.fill(0); // CLEAR
 
-                    egui_software_render.blit_canvas_to_buffer(&mut BufferMutRef::new(
-                        bytemuck::cast_slice_mut(&mut buffer[..]),
-                        width as usize,
-                        height as usize,
-                    ));
+                    if RENDER_DIRECT {
+                        egui_software_render.render_direct(
+                            &mut BufferMutRef::new(
+                                bytemuck::cast_slice_mut(&mut buffer),
+                                width as usize,
+                                height as usize,
+                            ),
+                            &clipped_primitives,
+                            &full_output.textures_delta,
+                            full_output.pixels_per_point,
+                        );
+                    } else {
+                        egui_software_render.render(
+                            width as usize,
+                            height as usize,
+                            &clipped_primitives,
+                            &full_output.textures_delta,
+                            full_output.pixels_per_point,
+                        );
+                        egui_software_render.blit_canvas_to_buffer(&mut BufferMutRef::new(
+                            bytemuck::cast_slice_mut(&mut buffer),
+                            width as usize,
+                            height as usize,
+                        ));
+                    }
 
                     buffer.present().unwrap();
 

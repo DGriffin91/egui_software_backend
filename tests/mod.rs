@@ -3,7 +3,7 @@ use nv_flip::FlipImageRgb8;
 
 #[cfg(test)]
 mod tests {
-    use egui_software_backend::EguiSoftwareRender;
+    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
 
     use crate::*;
     use egui_kittest::{Harness, HarnessBuilder};
@@ -29,7 +29,7 @@ mod tests {
         let gpu_render_image = harness.render().unwrap();
 
         // --- Render on CPU
-        let egui_software_render = EguiSoftwareRender::default();
+        let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA);
         let mut harness = HarnessBuilder::default()
             .renderer(egui_software_render)
             .build(app());
