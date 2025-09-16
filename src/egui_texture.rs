@@ -9,12 +9,14 @@ pub struct EguiTexture {
     /// height - 1
     pub height_extent: i32,
     pub width: usize,
+    #[allow(dead_code)]
     pub height: usize,
     pub fsize: Vec2,
     pub options: TextureOptions,
 }
 
 impl EguiTexture {
+    #[allow(dead_code)]
     pub fn sample_nearest(&self, uv: Vec2) -> [u8; 4] {
         let ss_x = ((uv.x * self.fsize.x) as i32).max(0).min(self.width_extent);
         let ss_y = ((uv.y * self.fsize.y) as i32)
@@ -124,54 +126,6 @@ pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let res = (res | (res >> 8)) & 0x0000FFFF0000FFFF;
     let res = res | (res >> 16);
     u32::to_le_bytes((res & 0x00000000FFFFFFFFF) as u32)
-}
-
-#[inline(always)]
-pub fn egui_blend_u8_old(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
-    // TODO this subtly changes the shading. See on tables with alternating row backgrounds.
-    // if src[3] == 0 {
-    //     return dst;
-    // }
-    if src[3] == 255 {
-        return src;
-    }
-
-    let mut c = unorm_mult4x1(
-        [dst[0] as u32, dst[1] as u32, dst[2] as u32, dst[3] as u32],
-        255u32.saturating_sub(src[3] as u32),
-    );
-    c = [
-        c[0] + (src[0] as u32),
-        c[1] + (src[1] as u32),
-        c[2] + (src[2] as u32),
-        c[3] + (src[3] as u32),
-    ];
-    [
-        (c[0].min(255) as u8),
-        (c[1].min(255) as u8),
-        (c[2].min(255) as u8),
-        (c[3].min(255) as u8),
-    ]
-}
-
-#[inline(always)]
-pub fn unorm_mult4x1(a: [u32; 4], b: u32) -> [u32; 4] {
-    [
-        unorm_mult(a[0], b),
-        unorm_mult(a[1], b),
-        unorm_mult(a[2], b),
-        unorm_mult(a[3], b),
-    ]
-}
-
-#[inline(always)]
-// Jerry R. Van Aken - Alpha Blending with No Division Operations https://arxiv.org/pdf/2202.02864
-// Input should be 0..255, is multiplied as if it were 0..1f
-pub fn unorm_mult(mut a: u32, mut b: u32) -> u32 {
-    b |= b << 8;
-    a *= b;
-    a += 0x8080;
-    a >> 16
 }
 
 #[inline(always)]

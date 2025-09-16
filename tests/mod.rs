@@ -33,8 +33,8 @@ mod tests {
 
         // --- Render on CPU
         let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA)
-            .allow_raster_opt(ALLOW_RASTER_OPT)
-            .convert_tris_to_rects(CONVERT_TRIS_TO_RECTS);
+            .with_allow_raster_opt(ALLOW_RASTER_OPT)
+            .with_convert_tris_to_rects(CONVERT_TRIS_TO_RECTS);
         let mut harness = HarnessBuilder::default()
             .renderer(egui_software_render)
             .with_pixels_per_point(PIXELS_PER_POINT)

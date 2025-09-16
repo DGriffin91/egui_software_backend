@@ -8,13 +8,13 @@ use crate::{
     render::draw_egui_mesh,
 };
 
-pub mod egui_texture;
-pub mod hash;
-pub mod raster;
-pub mod render;
+pub(crate) mod egui_texture;
+pub(crate) mod hash;
+pub(crate) mod raster;
+pub(crate) mod render;
 #[cfg(feature = "test_render")]
 pub mod test_render;
-pub mod vec4;
+pub(crate) mod vec4;
 
 const TILE_SIZE: usize = 64;
 
@@ -36,8 +36,8 @@ pub struct EguiSoftwareRender {
     output_field_order: ColorFieldOrder,
     canvas: Canvas,
     redraw_everything_this_frame: bool,
-    convert_tris_to_rects_prop: bool,
-    allow_raster_opt_prop: bool,
+    convert_tris_to_rects: bool,
+    allow_raster_opt: bool,
 }
 
 impl EguiSoftwareRender {
@@ -56,22 +56,22 @@ impl EguiSoftwareRender {
             output_field_order,
             canvas: Default::default(),
             redraw_everything_this_frame: Default::default(),
-            convert_tris_to_rects_prop: true,
-            allow_raster_opt_prop: true,
+            convert_tris_to_rects: true,
+            allow_raster_opt: true,
         }
     }
 
     /// If true: attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
     ///   Things *should* look the same with this set to `true` while rendering faster.
-    pub fn convert_tris_to_rects(mut self, set: bool) -> Self {
-        self.convert_tris_to_rects_prop = set;
+    pub fn with_convert_tris_to_rects(mut self, set: bool) -> Self {
+        self.convert_tris_to_rects = set;
         self
     }
 
-    /// If false: Rasterize everything with triangles, always calculate vertex colors, uvs,
-    ///   use bilinear everywhere, etc... Things *should* look the same with this set to `true` while rendering faster.
-    pub fn allow_raster_opt(mut self, set: bool) -> Self {
-        self.allow_raster_opt_prop = set;
+    /// If false: Rasterize everything with triangles, always calculate vertex colors, uvs, use bilinear
+    ///   everywhere, etc... Things *should* look the same with this set to `true` while rendering faster.
+    pub fn with_allow_raster_opt(mut self, set: bool) -> Self {
+        self.allow_raster_opt = set;
         self
     }
 
@@ -181,22 +181,22 @@ impl EguiSoftwareRender {
                     &self.textures,
                     self.target_size,
                     direct_draw_buffer,
-                    self.convert_tris_to_rects_prop,
+                    self.convert_tris_to_rects,
                     &clip_rect,
                     &self.px_mesh,
                     Vec2::ZERO,
-                    self.allow_raster_opt_prop,
+                    self.allow_raster_opt,
                 );
             } else {
                 draw_egui_mesh::<8>(
                     &self.textures,
                     self.target_size,
                     direct_draw_buffer,
-                    self.convert_tris_to_rects_prop,
+                    self.convert_tris_to_rects,
                     &clip_rect,
                     &self.px_mesh,
                     Vec2::ZERO,
-                    self.allow_raster_opt_prop,
+                    self.allow_raster_opt,
                 );
             }
         }
@@ -356,22 +356,22 @@ impl EguiSoftwareRender {
                         &self.textures,
                         self.target_size,
                         &mut buffer_ref,
-                        self.convert_tris_to_rects_prop,
+                        self.convert_tris_to_rects,
                         &clip_rect,
                         &self.px_mesh,
                         offset,
-                        self.allow_raster_opt_prop,
+                        self.allow_raster_opt,
                     );
                 } else {
                     draw_egui_mesh::<8>(
                         &self.textures,
                         self.target_size,
                         &mut buffer_ref,
-                        self.convert_tris_to_rects_prop,
+                        self.convert_tris_to_rects,
                         &clip_rect,
                         &self.px_mesh,
                         offset,
-                        self.allow_raster_opt_prop,
+                        self.allow_raster_opt,
                     );
                 }
                 self.prims_updated_this_frame += 1;
@@ -459,6 +459,12 @@ impl EguiSoftwareRender {
         // buffer.data.iter_mut().zip(self.canvas.iter()).for_each(|(pixel, src)| {
         //     *pixel = egui_blend_u8(*src, *pixel);
         // });
+
+        if self.canvas.data.len() == 0 {
+            panic!(
+                "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render()"
+            )
+        }
 
         let width = self.canvas.width;
         let height = self.canvas.height;
@@ -558,8 +564,8 @@ impl EguiSoftwareRender {
 }
 
 #[derive(Default)]
-pub struct Canvas {
-    pub data: Vec<[u8; 4]>,
+struct Canvas {
+    data: Vec<[u8; 4]>,
     width: usize,
     height: usize,
     width_extent: usize,
@@ -567,12 +573,12 @@ pub struct Canvas {
 }
 
 impl Canvas {
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.data.iter_mut().for_each(|p| *p = [0; 4]);
     }
 
     /// returns true if wasn't already the given size
-    pub fn resize(&mut self, width: usize, height: usize) -> bool {
+    fn resize(&mut self, width: usize, height: usize) -> bool {
         if width != self.width || height != self.height {
             self.data.resize(width * height, [0; 4]);
             self.width = width;
@@ -587,15 +593,15 @@ impl Canvas {
 }
 
 pub struct CachedPrimitive {
-    pub buffer: Vec<[u8; 4]>,
-    pub min_x: usize,
-    pub min_y: usize,
-    pub width: usize,
-    pub height: usize,
-    pub z_order: usize,
-    pub seen_this_frame: bool,
-    pub rendered_this_frame: bool,
-    pub occupied_tiles: Vec<[u16; 2]>,
+    buffer: Vec<[u8; 4]>,
+    min_x: usize,
+    min_y: usize,
+    width: usize,
+    height: usize,
+    z_order: usize,
+    seen_this_frame: bool,
+    rendered_this_frame: bool,
+    occupied_tiles: Vec<[u16; 2]>,
 }
 
 impl CachedPrimitive {

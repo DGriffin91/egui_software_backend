@@ -151,14 +151,15 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 requires_alpha_blending = false;
             }
         }
-        if uvs_match && !colors_match
+        if uvs_match
+            && !colors_match
             && const_tex_color_u8x4[3] == 255
-                && color0_u8x4[3] == 255
-                && color1_u8x4[3] == 255
-                && color2_u8x4[3] == 255
-            {
-                requires_alpha_blending = false;
-            }
+            && color0_u8x4[3] == 255
+            && color1_u8x4[3] == 255
+            && color2_u8x4[3] == 255
+        {
+            requires_alpha_blending = false;
+        }
 
         let mut tri2_uvs_match = false;
         let mut tri2_colors_match = false;
@@ -470,16 +471,4 @@ fn draw_solid_rect(
 #[inline(always)]
 pub fn egui_orient2df(a: &Pos2, b: &Pos2, c: &Pos2) -> f32 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-}
-
-/// [min_x, min_y, max_x, max_y]
-#[inline(always)]
-pub fn i32_aabb_intersects(a: &[i32; 4], b: &[i32; 4]) -> bool {
-    a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1]
-}
-
-/// [min_x, min_y, max_x, max_y]
-#[inline(always)]
-pub fn usize_aabb_intersects(a: &[usize; 4], b: &[usize; 4]) -> bool {
-    a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1]
 }
