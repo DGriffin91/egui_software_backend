@@ -177,19 +177,25 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             tri2[1].pos += vert_offset;
             tri2[2].pos += vert_offset;
 
+            #[inline(always)]
+            fn close(a: f32, b: f32) -> bool {
+                //(a - b).abs() <= 0.1
+                a == b
+            }
+
             // https://github.com/emilk/imgui_software_renderer/blob/b5ae63a9e42eccf7db3bf64696761a53424c53dd/src/imgui_sw.cpp#L577
-            found_rect = (tri[0].pos.x == tri_min.x || tri[0].pos.x == tri_max.x)
-                && (tri[0].pos.y == tri_min.y || tri[0].pos.y == tri_max.y)
-                && (tri[1].pos.x == tri_min.x || tri[1].pos.x == tri_max.x)
-                && (tri[1].pos.y == tri_min.y || tri[1].pos.y == tri_max.y)
-                && (tri[2].pos.x == tri_min.x || tri[2].pos.x == tri_max.x)
-                && (tri[2].pos.y == tri_min.y || tri[2].pos.y == tri_max.y)
-                && (tri2[0].pos.x == tri_min.x || tri2[0].pos.x == tri_max.x)
-                && (tri2[0].pos.y == tri_min.y || tri2[0].pos.y == tri_max.y)
-                && (tri2[1].pos.x == tri_min.x || tri2[1].pos.x == tri_max.x)
-                && (tri2[1].pos.y == tri_min.y || tri2[1].pos.y == tri_max.y)
-                && (tri2[2].pos.x == tri_min.x || tri2[2].pos.x == tri_max.x)
-                && (tri2[2].pos.y == tri_min.y || tri2[2].pos.y == tri_max.y);
+            found_rect = (close(tri[0].pos.x, tri_min.x) || close(tri[0].pos.x, tri_max.x))
+                && (close(tri[0].pos.y, tri_min.y) || close(tri[0].pos.y, tri_max.y))
+                && (close(tri[1].pos.x, tri_min.x) || close(tri[1].pos.x, tri_max.x))
+                && (close(tri[1].pos.y, tri_min.y) || close(tri[1].pos.y, tri_max.y))
+                && (close(tri[2].pos.x, tri_min.x) || close(tri[2].pos.x, tri_max.x))
+                && (close(tri[2].pos.y, tri_min.y) || close(tri[2].pos.y, tri_max.y))
+                && (close(tri2[0].pos.x, tri_min.x) || close(tri2[0].pos.x, tri_max.x))
+                && (close(tri2[0].pos.y, tri_min.y) || close(tri2[0].pos.y, tri_max.y))
+                && (close(tri2[1].pos.x, tri_min.x) || close(tri2[1].pos.x, tri_max.x))
+                && (close(tri2[1].pos.y, tri_min.y) || close(tri2[1].pos.y, tri_max.y))
+                && (close(tri2[2].pos.x, tri_min.x) || close(tri2[2].pos.x, tri_max.x))
+                && (close(tri2[2].pos.y, tri_min.y) || close(tri2[2].pos.y, tri_max.y));
 
             if found_rect {
                 tri2_uvs_match =
@@ -357,7 +363,7 @@ fn draw_textured_rect(
         );
 
         let uv_step = (max_uv - min_uv) / vec2(sizex as f32, sizey as f32);
-        min_uv += uv_step * 0.5; // Raster at pixel centers 
+        min_uv += uv_step * 0.5; // Raster at pixel centers
         let mut uv = min_uv;
         for y in min_y..max_y {
             uv.x = min_uv.x;
