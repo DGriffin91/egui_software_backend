@@ -43,7 +43,7 @@ pub struct EguiSoftwareRender {
 impl EguiSoftwareRender {
     /// # Arguments
     /// * `output_field_order` - egui textures and vertex colors will be swizzled before rendering to match the desired
-    /// output buffer order.
+    ///   output buffer order.
     pub fn new(output_field_order: ColorFieldOrder) -> Self {
         EguiSoftwareRender {
             textures: Default::default(),
@@ -217,7 +217,7 @@ impl EguiSoftwareRender {
         self.px_mesh.texture_id = mesh.texture_id;
 
         for v in self.px_mesh.vertices.iter_mut() {
-            v.pos = v.pos * pixels_per_point;
+            v.pos *= pixels_per_point;
 
             // This could fix a tiny sub-pixel bias to match gpu rendering due to alias not matching due to things like:
             // https://github.com/emilk/egui/blob/226bdc4c5bbb2230fb829e01b3fcb0460e741b34/crates/egui/src/widgets/color_picker.rs#L28
@@ -383,18 +383,10 @@ impl EguiSoftwareRender {
 
     fn update_canvas_from_cached(&mut self) {
         // TODO perf: see if blending could be faster than with egui_blend_u8 & uvec_to_u8x4.
-        let mut sorted_prim_cache = self
-            .cached_primitives
-            .iter()
-            .map(|(_hash, prim)| prim)
-            .collect::<Vec<_>>();
+        let mut sorted_prim_cache = self.cached_primitives.values().collect::<Vec<_>>();
         sorted_prim_cache.sort_unstable_by_key(|prim| prim.z_order);
-        #[allow(unused_variables)]
-        let mut total_tiles_updated = 0;
-        #[allow(unused_variables)]
-        let mut total_tiles = 0;
-        // TODO perf: parallelize
 
+        // TODO perf: parallelize
         for tile_idx in self
             .dirty_tiles
             .iter()
@@ -408,9 +400,7 @@ impl EguiSoftwareRender {
             let tile_y_start = tile_y * TILE_SIZE;
             let tile_x_end = (tile_x_start + TILE_SIZE).min(self.canvas.width);
             let tile_y_end = (tile_y_start + TILE_SIZE).min(self.canvas.height);
-            total_tiles += 1;
 
-            total_tiles_updated += 1;
             // clear tile
             for y in tile_y_start..tile_y_end {
                 for x in tile_x_start..tile_x_end {
@@ -513,7 +503,7 @@ impl EguiSoftwareRender {
         self.dirty_tiles
             .resize(self.tiles_dim[0] * self.tiles_dim[1], 0);
         self.dirty_tiles.fill(0);
-        for (_hash, prim) in &self.cached_primitives {
+        for prim in self.cached_primitives.values() {
             for tile in &prim.occupied_tiles {
                 let mask =
                     &mut self.dirty_tiles[tile[0] as usize + tile[1] as usize * self.tiles_dim[0]];
@@ -559,7 +549,7 @@ impl EguiSoftwareRender {
                         width: size[0],
                         height: size[1],
                         fsize: vec2(size[0] as f32, size[1] as f32),
-                        options: delta.options.clone(),
+                        options: delta.options,
                     },
                 );
             }

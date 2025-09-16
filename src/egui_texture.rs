@@ -24,8 +24,8 @@ impl EguiTexture {
     }
 
     pub fn sample_bilinear(&self, uv: Vec2) -> [u8; 4] {
-        let w = self.fsize.x as f32;
-        let h = self.fsize.y as f32;
+        let w = self.fsize.x;
+        let h = self.fsize.y;
 
         let sx = uv.x * w - 0.5;
         let sy = uv.y * h - 0.5;
@@ -171,7 +171,7 @@ pub fn unorm_mult(mut a: u32, mut b: u32) -> u32 {
     b |= b << 8;
     a *= b;
     a += 0x8080;
-    return a >> 16;
+    a >> 16
 }
 
 #[inline(always)]

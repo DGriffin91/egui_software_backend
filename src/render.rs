@@ -68,7 +68,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         let mut const_tri_color_u8x4 = [255; 4];
 
         let mut tri = [
-            vertices[indices[i + 0] as usize],
+            vertices[indices[i] as usize],
             vertices[indices[i + 1] as usize],
             vertices[indices[i + 2] as usize],
         ];
@@ -151,15 +151,14 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 requires_alpha_blending = false;
             }
         }
-        if uvs_match && !colors_match {
-            if const_tex_color_u8x4[3] == 255
+        if uvs_match && !colors_match
+            && const_tex_color_u8x4[3] == 255
                 && color0_u8x4[3] == 255
                 && color1_u8x4[3] == 255
                 && color2_u8x4[3] == 255
             {
                 requires_alpha_blending = false;
             }
-        }
 
         let mut tri2_uvs_match = false;
         let mut tri2_colors_match = false;
@@ -399,7 +398,7 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
                 let pixel = buffer.get_mut_clamped(x as usize, y as usize);
                 let dst = u8x4_to_vec4(pixel);
                 let src = const_tri_color;
-                *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
+                *pixel = vec4_to_u8x4_no_clamp(&egui_blend(src, &dst));
             }),
         );
     } else {

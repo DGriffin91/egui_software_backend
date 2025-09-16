@@ -82,7 +82,7 @@ fn main() {
                 return;
             }
 
-            let response = app.egui_winit.on_window_event(&window, &window_event);
+            let response = app.egui_winit.on_window_event(window, &window_event);
 
             if response.repaint {
                 // Redraw when egui says it's needed (e.g., mouse move, key press):
@@ -105,7 +105,7 @@ fn main() {
                     let raw_input = app.egui_winit.take_egui_input(window);
 
                     let full_output = app.egui_ctx.run(raw_input, |ctx| {
-                        egui_demo.ui(&ctx);
+                        egui_demo.ui(ctx);
                     });
 
                     let clipped_primitives = app

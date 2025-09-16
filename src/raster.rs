@@ -159,9 +159,9 @@ pub struct SingleStepper {
 impl SingleStepper {
     pub fn new(v0: &[i64; 2], v1: &[i64; 2], v2: &[i64; 2], p: &[i64; 2], subpix: i64) -> Self {
         SingleStepper {
-            e12: SingleStep::new(&v1, &v2, &p, subpix),
-            e20: SingleStep::new(&v2, &v0, &p, subpix),
-            e01: SingleStep::new(&v0, &v1, &p, subpix),
+            e12: SingleStep::new(v1, v2, p, subpix),
+            e20: SingleStep::new(v2, v0, p, subpix),
+            e01: SingleStep::new(v0, v1, p, subpix),
             w0: 0,
             w1: 0,
             w2: 0,
@@ -253,7 +253,7 @@ impl SingleStep {
 
 #[inline(always)]
 pub fn orient2d_hp(a: &[i64; 2], b: &[i64; 2], c: &[i64; 2]) -> i64 {
-    (b[0] - a[0]) as i64 * (c[1] - a[1]) as i64 - (b[1] - a[1]) as i64 * (c[0] - a[0]) as i64
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 }
 
 pub fn vec2_to_ivec2(v: egui::Vec2) -> [i64; 2] {
