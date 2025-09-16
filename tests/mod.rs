@@ -1,4 +1,3 @@
-#[cfg(all(test, feature = "test_render"))]
 mod tests {
     use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
     use image::{DynamicImage, ImageBuffer, Rgba};

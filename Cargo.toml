@@ -11,6 +11,8 @@ image = { version = "0.25", optional = true }
 bytemuck = { version = "1.23", optional = true }
 
 [dev-dependencies]
+egui_software_backend = { path = ".", features = ["test_render"] }
+
 egui = { version = "0.32", features = ["default_fonts"] }
 eframe = "0.32"
 egui_kittest = { version = "0.32", features = ["snapshot", "wgpu"] }
@@ -40,7 +42,4 @@ opt-level = 3
 members = ["examples/bevy_example"]
 
 [features]
-#default = ["test_render"]
-
-# test with `cargo test --features test_render`
 test_render = ["dep:bytemuck", "dep:image", "dep:egui_kittest"]
