@@ -20,12 +20,16 @@ struct AppState {
     egui_winit: egui_winit::State,
 }
 
-const RENDER_DIRECT: bool = false; // TODO make env arg
+const RENDER_DIRECT: bool = false; // TODO make env arg or runtime selectable
+const ALLOW_RASTER_OPT: bool = true; // TODO make env arg or runtime selectable
+const CONVERT_TRIS_TO_RECTS: bool = true; // TODO make env arg or runtime selectable
 
 fn main() {
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
     let mut egui_color_test = ColorTest::default();
-    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA);
+    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA)
+        .with_allow_raster_opt(ALLOW_RASTER_OPT)
+        .with_convert_tris_to_rects(CONVERT_TRIS_TO_RECTS);
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 

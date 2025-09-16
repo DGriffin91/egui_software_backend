@@ -13,7 +13,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     textures: &HashMap<egui::TextureId, EguiTexture>,
     target_size: Vec2,
     buffer: &mut BufferMutRef,
-    find_rects: bool,
+    convert_tris_to_rects: bool,
     clip_rect: &egui::Rect,
     mesh: &egui::Mesh,
     vert_offset: Vec2,
@@ -42,10 +42,9 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     let vertices = &mesh.vertices;
     let clip_x = clip_rect.min.x as i32;
     let clip_y = clip_rect.min.y as i32;
-    // TODO not sure why +1.0 is needed here instead of +0.5, was cropping off some stuff
-    // (also see same note in render() when converting cropped_min/max to i32)
-    let clip_width = (clip_rect.max.x - clip_rect.min.x + 1.0) as i32;
-    let clip_height = (clip_rect.max.y - clip_rect.min.y + 1.0) as i32;
+
+    let clip_width = (clip_rect.max.x - clip_rect.min.x + 0.5) as i32;
+    let clip_height = (clip_rect.max.y - clip_rect.min.y + 0.5) as i32;
 
     let clip_bounds = [
         clip_x.clamp(0, buffer.width as i32),
@@ -163,7 +162,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
         let mut tri2_uvs_match = false;
         let mut tri2_colors_match = false;
-        let find_rects = find_rects && i + 6 < indices.len();
+        let find_rects = convert_tris_to_rects && i + 6 < indices.len();
         let find_rects = find_rects && colors_match;
         let mut found_rect = false;
 

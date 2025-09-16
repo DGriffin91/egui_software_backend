@@ -163,10 +163,10 @@ impl EguiSoftwareRender {
                 continue;
             }
 
-            // TODO not sure why +1.0 is needed here instead of +0.5, was cropping off some stuff
             let clip_rect = egui::Rect {
                 min: clip_rect.min * pixels_per_point,
-                max: clip_rect.max * pixels_per_point,
+                // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
+                max: clip_rect.max * pixels_per_point + egui::Vec2::splat(1.5),
             };
 
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
@@ -265,10 +265,10 @@ impl EguiSoftwareRender {
                 continue;
             }
 
-            // TODO not sure why +1.0 is needed here instead of +0.5, was cropping off some stuff
             let clip_rect = egui::Rect {
                 min: clip_rect.min * pixels_per_point,
-                max: clip_rect.max * pixels_per_point,
+                // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
+                max: clip_rect.max * pixels_per_point + egui::Vec2::splat(1.5),
             };
 
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
@@ -320,10 +320,8 @@ impl EguiSoftwareRender {
                 cached_primitive.min_y = cropped_min.y as usize;
                 cached_primitive.rendered_this_frame = false;
             } else {
-                // TODO not sure why +1.0 is needed here instead of +0.5, was cropping off some stuff
-                // (also see same note in draw_egui_mesh() when converting clip_rect to i32)
-                let width = (cropped_max.x - cropped_min.x + 1.0) as usize;
-                let height = (cropped_max.y - cropped_min.y + 1.0) as usize;
+                let width = (cropped_max.x - cropped_min.x + 0.5) as usize;
+                let height = (cropped_max.y - cropped_min.y + 0.5) as usize;
 
                 if width > 8192 || height > 8192 {
                     // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
