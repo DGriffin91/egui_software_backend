@@ -198,29 +198,34 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 && (close(tri2[2].pos.y, tri_min.y) || close(tri2[2].pos.y, tri_max.y));
 
             if found_rect {
-                tri2_uvs_match =
-                    tri[0].uv == tri2[0].uv && tri[0].uv == tri2[1].uv && tri[0].uv == tri2[2].uv;
+                let tri_area = egui_orient2df(&tri[0].pos, &tri[1].pos, &tri[2].pos).abs();
+                let rect_area = (tri_max.x - tri_min.x) * (tri_max.y - tri_min.y);
+                let areas_match = (tri_area - rect_area).abs() < 0.5;
 
-                tri2_colors_match = tri[0].color == tri2[0].color
-                    && tri[0].color == tri2[1].color
-                    && tri[0].color == tri2[2].color;
+                if areas_match {
+                    tri2_uvs_match = tri[0].uv == tri2[0].uv
+                        && tri[0].uv == tri2[1].uv
+                        && tri[0].uv == tri2[2].uv;
+
+                    tri2_colors_match = tri[0].color == tri2[0].color
+                        && tri[0].color == tri2[1].color
+                        && tri[0].color == tri2[2].color;
+                } else {
+                    found_rect = false;
+                }
             }
         }
 
         if uvs_match && colors_match {
-            if found_rect
-                && tri2_uvs_match
-                && tri2_colors_match
-                && draw_solid_rect(
+            if found_rect && tri2_uvs_match && tri2_colors_match {
+                draw_solid_rect(
                     buffer,
                     const_tri_color_u8x4,
                     &clip_bounds,
                     tri_min,
                     tri_max,
-                    &tri,
                     requires_alpha_blending,
-                )
-            {
+                );
                 i += 6; // Skip both tris
                 continue;
             } else {
@@ -266,9 +271,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         } else if colors_match {
             // if colors match but uvs don't match
 
-            if found_rect
-                && tri2_colors_match
-                && draw_textured_rect(
+            if found_rect && tri2_colors_match {
+                draw_textured_rect(
                     buffer,
                     const_vert_color_u8x4,
                     texture,
@@ -277,8 +281,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                     tri_max,
                     &tri,
                     use_bilinear,
-                )
-            {
+                );
                 i += 6; // Skip both tris
                 continue;
             } else {
@@ -330,57 +333,48 @@ fn draw_textured_rect(
     tri_max: Vec2,
     tri: &[Vertex; 3],
     _use_bilinear: bool,
-) -> bool {
-    let tri_area = egui_orient2df(&tri[0].pos, &tri[1].pos, &tri[2].pos).abs();
-    let rect_area = (tri_max.x - tri_min.x) * (tri_max.y - tri_min.y);
-    let areas_match = (tri_area - rect_area).abs() < 0.5;
+) {
+    let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
+    let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
+    let max_x = ((tri_max.x + 0.5) as i32).min(clip_bounds[2]);
+    let max_y = ((tri_max.y + 0.5) as i32).min(clip_bounds[3]);
 
-    if areas_match {
-        let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
-        let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
-        let max_x = ((tri_max.x + 0.5) as i32).min(clip_bounds[2]);
-        let max_y = ((tri_max.y + 0.5) as i32).min(clip_bounds[3]);
+    let sizex = max_x - min_x;
+    let sizey = max_y - min_y;
 
-        let sizex = max_x - min_x;
-        let sizey = max_y - min_y;
-
-        if sizex <= 0 || sizey <= 0 {
-            return false;
-        }
-
-        let min_x = min_x as usize;
-        let min_y = min_y as usize;
-        let max_x = max_x as usize;
-        let max_y = max_y as usize;
-
-        let mut min_uv = vec2(
-            tri[0].uv.x.min(tri[1].uv.x).min(tri[2].uv.x),
-            tri[0].uv.y.min(tri[1].uv.y).min(tri[2].uv.y),
-        );
-        let max_uv = vec2(
-            tri[0].uv.x.max(tri[1].uv.x).max(tri[2].uv.x),
-            tri[0].uv.y.max(tri[1].uv.y).max(tri[2].uv.y),
-        );
-
-        let uv_step = (max_uv - min_uv) / vec2(sizex as f32, sizey as f32);
-        min_uv += uv_step * 0.5; // Raster at pixel centers
-        let mut uv = min_uv;
-        for y in min_y..max_y {
-            uv.x = min_uv.x;
-            let buf_y = y * buffer.width;
-            for x in min_x..max_x {
-                let tex_color = texture.sample_bilinear(uv);
-                let pixel = &mut buffer.data[x + buf_y];
-                let src = unorm_mult4x4(const_vert_color_u8x4, tex_color);
-                *pixel = egui_blend_u8(src, *pixel);
-                uv.x += uv_step.x;
-            }
-            uv.y += uv_step.y;
-        }
-
-        return true;
+    if sizex <= 0 || sizey <= 0 {
+        return;
     }
-    false
+
+    let min_x = min_x as usize;
+    let min_y = min_y as usize;
+    let max_x = max_x as usize;
+    let max_y = max_y as usize;
+
+    let mut min_uv = vec2(
+        tri[0].uv.x.min(tri[1].uv.x).min(tri[2].uv.x),
+        tri[0].uv.y.min(tri[1].uv.y).min(tri[2].uv.y),
+    );
+    let max_uv = vec2(
+        tri[0].uv.x.max(tri[1].uv.x).max(tri[2].uv.x),
+        tri[0].uv.y.max(tri[1].uv.y).max(tri[2].uv.y),
+    );
+
+    let uv_step = (max_uv - min_uv) / vec2(sizex as f32, sizey as f32);
+    min_uv += uv_step * 0.5; // Raster at pixel centers
+    let mut uv = min_uv;
+    for y in min_y..max_y {
+        uv.x = min_uv.x;
+        let buf_y = y * buffer.width;
+        for x in min_x..max_x {
+            let tex_color = texture.sample_bilinear(uv);
+            let pixel = &mut buffer.data[x + buf_y];
+            let src = unorm_mult4x4(const_vert_color_u8x4, tex_color);
+            *pixel = egui_blend_u8(src, *pixel);
+            uv.x += uv_step.x;
+        }
+        uv.y += uv_step.y;
+    }
 }
 
 fn draw_solid_tri<const SUBPIX_BITS: i32>(
@@ -421,50 +415,40 @@ fn draw_solid_rect(
     clip_bounds: &[i32; 4],
     tri_min: Vec2,
     tri_max: Vec2,
-    tri: &[Vertex; 3],
     requires_alpha_blending: bool,
-) -> bool {
-    let tri_area = egui_orient2df(&tri[0].pos, &tri[1].pos, &tri[2].pos).abs();
-    let rect_area = (tri_max.x - tri_min.x) * (tri_max.y - tri_min.y);
-    let areas_match = (tri_area - rect_area).abs() < 0.5;
+) {
+    let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
+    let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
+    let max_x = ((tri_max.x + 0.5) as i32).min(clip_bounds[2]);
+    let max_y = ((tri_max.y + 0.5) as i32).min(clip_bounds[3]);
 
-    if areas_match {
-        let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
-        let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
-        let max_x = ((tri_max.x + 0.5) as i32).min(clip_bounds[2]);
-        let max_y = ((tri_max.y + 0.5) as i32).min(clip_bounds[3]);
+    let sizex = max_x - min_x;
+    let sizey = max_y - min_y;
 
-        let sizex = max_x - min_x;
-        let sizey = max_y - min_y;
-
-        if sizex <= 0 || sizey <= 0 {
-            return false;
-        }
-
-        let min_x = min_x as usize;
-        let min_y = min_y as usize;
-        let max_x = max_x as usize;
-        let max_y = max_y as usize;
-
-        if requires_alpha_blending {
-            for y in min_y..max_y {
-                let buf_y = y * buffer.width;
-                for x in min_x..max_x {
-                    let pixel = &mut buffer.data[x + buf_y];
-                    let src = const_tri_color_u8x4;
-                    *pixel = egui_blend_u8(src, *pixel);
-                }
-            }
-        } else {
-            for y in min_y..max_y {
-                let buf_y = y * buffer.width;
-                buffer.data[min_x + buf_y..max_x + buf_y].fill(const_tri_color_u8x4);
-            }
-        }
-
-        return true;
+    if sizex <= 0 || sizey <= 0 {
+        return;
     }
-    false
+
+    let min_x = min_x as usize;
+    let min_y = min_y as usize;
+    let max_x = max_x as usize;
+    let max_y = max_y as usize;
+
+    if requires_alpha_blending {
+        for y in min_y..max_y {
+            let buf_y = y * buffer.width;
+            for x in min_x..max_x {
+                let pixel = &mut buffer.data[x + buf_y];
+                let src = const_tri_color_u8x4;
+                *pixel = egui_blend_u8(src, *pixel);
+            }
+        }
+    } else {
+        for y in min_y..max_y {
+            let buf_y = y * buffer.width;
+            buffer.data[min_x + buf_y..max_x + buf_y].fill(const_tri_color_u8x4);
+        }
+    }
 }
 
 #[inline(always)]
