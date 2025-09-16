@@ -6,8 +6,8 @@ mod tests {
     use egui_kittest::{Harness, HarnessBuilder};
 
     const PIXELS_PER_POINT: f32 = 1.0; // TODO test with multiple 
-    const ALLOW_RASTER_OPT: bool = false; // TODO test with/without
-    const CONVERT_TRIS_TO_RECTS: bool = false; // TODO test with/without
+    const ALLOW_RASTER_OPT: bool = true; // TODO test with/without
+    const CONVERT_TRIS_TO_RECTS: bool = true; // TODO test with/without
 
     #[test]
     pub fn compare_software_render_with_gpu() {

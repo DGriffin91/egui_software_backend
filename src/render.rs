@@ -4,7 +4,7 @@ use egui::{Pos2, TextureOptions, Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
-    egui_texture::{egui_blend, u8x4_to_vec4, vec4_to_u8x4_no_clamp},
+    egui_texture::{egui_blend, egui_blend_u8, u8x4_to_vec4, unorm_mult4x4, vec4_to_u8x4_no_clamp},
     raster::{no_bary, raster_tri_no_depth_no_backface_cull, with_bary},
     vec4::Vec4,
 };
@@ -63,7 +63,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         let mut const_tex_color = Vec4::ONE;
         let mut const_tex_color_u8x4 = [255; 4];
         let mut const_vert_color = Vec4::ONE;
-        let mut const_tri_color = Vec4::ONE;
+        let mut const_vert_color_u8x4 = [255; 4];
         let mut const_tri_color_u8x4 = [255; 4];
 
         let mut tri = [
@@ -142,9 +142,10 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         }
         if colors_match {
             const_vert_color = color0;
+            const_vert_color_u8x4 = vec4_to_u8x4_no_clamp(&const_vert_color);
         }
         if uvs_match && colors_match {
-            const_tri_color = const_vert_color * const_tex_color;
+            let const_tri_color = const_vert_color * const_tex_color;
             const_tri_color_u8x4 = vec4_to_u8x4_no_clamp(&const_tri_color);
             if const_tri_color_u8x4[3] == 255 {
                 requires_alpha_blending = false;
@@ -206,7 +207,6 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 && tri2_colors_match
                 && draw_solid_rect(
                     buffer,
-                    const_tri_color,
                     const_tri_color_u8x4,
                     &clip_bounds,
                     tri_min,
@@ -221,7 +221,6 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 draw_solid_tri::<SUBPIX_BITS>(
                     &target_size,
                     buffer,
-                    &const_tri_color,
                     const_tri_color_u8x4,
                     &clip_bounds,
                     &uv_tri,
@@ -265,7 +264,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 && tri2_colors_match
                 && draw_textured_rect(
                     buffer,
-                    const_vert_color,
+                    const_vert_color_u8x4,
                     texture,
                     &clip_bounds,
                     tri_min,
@@ -318,7 +317,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
 fn draw_textured_rect(
     buffer: &mut BufferMutRef,
-    const_vert_color: Vec4,
+    const_vert_color_u8x4: [u8; 4],
     texture: &EguiTexture,
     clip_bounds: &[i32; 4],
     tri_min: Vec2,
@@ -364,11 +363,10 @@ fn draw_textured_rect(
             uv.x = min_uv.x;
             let buf_y = y * buffer.width;
             for x in min_x..max_x {
-                let tex_color = u8x4_to_vec4(&texture.sample_bilinear(uv));
+                let tex_color = texture.sample_bilinear(uv);
                 let pixel = &mut buffer.data[x + buf_y];
-                let dst = u8x4_to_vec4(pixel);
-                let src = const_vert_color * tex_color;
-                *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
+                let src = unorm_mult4x4(const_vert_color_u8x4, tex_color);
+                *pixel = egui_blend_u8(src, *pixel);
                 uv.x += uv_step.x;
             }
             uv.y += uv_step.y;
@@ -382,7 +380,6 @@ fn draw_textured_rect(
 fn draw_solid_tri<const SUBPIX_BITS: i32>(
     target_size: &Vec2,
     buffer: &mut BufferMutRef,
-    const_tri_color: &Vec4,
     const_tri_color_u8x4: [u8; 4],
     clip_bounds: &[i32; 4],
     uv_tri: &[Vec2; 3],
@@ -396,9 +393,8 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
             *uv_tri,
             no_bary(|x, y| {
                 let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-                let dst = u8x4_to_vec4(pixel);
-                let src = const_tri_color;
-                *pixel = vec4_to_u8x4_no_clamp(&egui_blend(src, &dst));
+                let src = const_tri_color_u8x4;
+                *pixel = egui_blend_u8(src, *pixel);
             }),
         );
     } else {
@@ -415,7 +411,6 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
 
 fn draw_solid_rect(
     buffer: &mut BufferMutRef,
-    const_tri_color: Vec4,
     const_tri_color_u8x4: [u8; 4],
     clip_bounds: &[i32; 4],
     tri_min: Vec2,
@@ -450,9 +445,8 @@ fn draw_solid_rect(
                 let buf_y = y * buffer.width;
                 for x in min_x..max_x {
                     let pixel = &mut buffer.data[x + buf_y];
-                    let dst = u8x4_to_vec4(pixel);
-                    let src = const_tri_color;
-                    *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
+                    let src = const_tri_color_u8x4;
+                    *pixel = egui_blend_u8(src, *pixel);
                 }
             }
         } else {
