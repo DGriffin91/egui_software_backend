@@ -1,7 +1,5 @@
 use egui::Vec2;
 
-// Unfortunately using a closure was slower.
-
 // Based on https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/
 // Particularly:
 // https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/

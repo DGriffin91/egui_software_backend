@@ -160,8 +160,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
         let mut tri2_uvs_match = false;
         let mut tri2_colors_match = false;
-        let find_rects = convert_tris_to_rects && i + 6 < indices.len();
-        let find_rects = find_rects && colors_match;
+        let find_rects = convert_tris_to_rects && colors_match && i + 6 < indices.len();
         let mut found_rect = false;
 
         if find_rects {
