@@ -334,6 +334,7 @@ fn draw_textured_rect(
     );
 
     let uv_step = (max_uv - min_uv) / (tri_max - tri_min);
+    min_uv += uv_step * (vec2(min_x as f32, min_y as f32) - tri_min).max(Vec2::ZERO); // Offset to account for clip
     min_uv += uv_step * 0.5; // Raster at pixel centers
     let mut uv = min_uv;
     for y in min_y..max_y {
