@@ -1,16 +1,20 @@
 mod tests {
-    use std::path::Path;
 
-    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
+    use egui::{Vec2, vec2};
+    use egui_software_backend::{
+        ColorFieldOrder, EguiSoftwareRender, test_render::TEST_RENDER_MODE,
+    };
     use image::{ImageBuffer, Rgba};
 
-    use egui_kittest::{Harness, HarnessBuilder};
+    use egui_kittest::HarnessBuilder;
 
-    const PIXELS_PER_POINT: f32 = 1.0; // TODO test with multiple 
-    const ALLOW_RASTER_OPT: bool = true; // TODO test with/without
-    const CONVERT_TRIS_TO_RECTS: bool = true; // TODO test with/without
+    const RESOLUTION: Vec2 = vec2(1280.0, 720.0);
 
     #[test]
+    // Tests many configurations of the cpu software render backend against the GPU implementation.
+    // Outputs PNG files with diffs when pixels didn't match and will panic above a certain threshold:
+    // (1px for 1.0 px_per_point, 7px for 1.5 px_per_point).
+    // Currently have some pixels that don't match perfectly due to slight rounding when px_per_point is not 1.0
     pub fn compare_software_render_with_gpu() {
         fn app() -> impl FnMut(&egui::Context) {
             let mut egui_demo = egui_demo_lib::DemoWindows::default();
@@ -25,48 +29,81 @@ mod tests {
             }
         }
 
-        // --- Render on GPU
-        let mut harness = Harness::new(app());
-        harness.set_pixels_per_point(PIXELS_PER_POINT);
-        harness.run();
-        let gpu_render_image = harness.render().unwrap();
+        // egui's failed_px_count_thresold default is 0
+        for (px_per_point, failed_px_count_thresold) in [(1.0, 1), (1.5, 7)] {
+            // --- Render on GPU
+            let mut harness = HarnessBuilder::default()
+                .with_size(RESOLUTION)
+                .with_pixels_per_point(px_per_point)
+                .renderer(egui_kittest::LazyRenderer::default())
+                .build(app());
+            harness.run();
+            let gpu_render_image = harness.render().unwrap();
+            gpu_render_image
+                .save(format!("tests/tmp/gpu_px_per_point{px_per_point}.png"))
+                .unwrap();
 
-        // --- Render on CPU
-        let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA)
-            .with_allow_raster_opt(ALLOW_RASTER_OPT)
-            .with_convert_tris_to_rects(CONVERT_TRIS_TO_RECTS);
-        let mut harness = HarnessBuilder::default()
-            .renderer(egui_software_render)
-            .with_pixels_per_point(PIXELS_PER_POINT)
-            .build(app());
-        harness.run();
-        let cpu_render_image = harness.render().unwrap();
+            for direct in [true, false] {
+                for allow_raster_opt in [false, true] {
+                    for convert_tris_to_rects in [false, true] {
+                        TEST_RENDER_MODE.direct(direct);
 
-        let _ = std::fs::create_dir("tests/tmp/");
-        gpu_render_image
-            .save("tests/tmp/gpu_render_image.png")
-            .unwrap();
-        cpu_render_image
-            .save("tests/tmp/cpu_render_image.png")
-            .unwrap();
+                        // --- Render on CPU
+                        let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA)
+                            .with_allow_raster_opt(allow_raster_opt)
+                            .with_convert_tris_to_rects(convert_tris_to_rects);
 
-        dify(
-            &gpu_render_image,
-            &cpu_render_image,
-            0.6, // egui's default is 0.6
-            1,   // egui's default is 0
-            "tests/tmp/render_diff.png",
-        );
+                        let mut harness = HarnessBuilder::default()
+                            .with_size(RESOLUTION)
+                            .with_pixels_per_point(px_per_point)
+                            .renderer(egui_software_render)
+                            .build(app());
+                        harness.run();
+                        let cpu_render_image = harness.render().unwrap();
+
+                        let _ = std::fs::create_dir("tests/tmp/");
+
+                        let name = format!(
+                            "px_per_pt {px_per_point}, direct {direct}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
+                        );
+
+                        if let Some((pixels_failed, diff_image)) = dify(
+                            &gpu_render_image,
+                            &cpu_render_image,
+                            0.6, // egui's default is 0.6
+                        ) {
+                            if pixels_failed > failed_px_count_thresold {
+                                diff_image
+                                    .save(format!("tests/tmp/diff_{name} - FAIL.png"))
+                                    .unwrap();
+                                cpu_render_image
+                                    .save(format!("tests/tmp/cpu_{name} - FAIL.png"))
+                                    .unwrap();
+                                panic!("pixels_failed {pixels_failed}: {name}")
+                            } else {
+                                diff_image
+                                    .save(format!("tests/tmp/diff_{name}.png"))
+                                    .unwrap();
+                                cpu_render_image
+                                    .save(format!("tests/tmp/cpu_{name}.png"))
+                                    .unwrap();
+                            }
+                        } else {
+                            println!("excellent match, no dify diff: {name}")
+                        };
+                    }
+                }
+            }
+        }
     }
 
-    fn dify<P: AsRef<Path>>(
+    // Returning none indicates no diff
+    fn dify(
         gpu_render_image: &ImageBuffer<Rgba<u8>, Vec<u8>>,
         cpu_render_image: &ImageBuffer<Rgba<u8>, Vec<u8>>,
         threshold: f32,
-        failed_pixel_count_threshold: i32,
-        path: P,
-    ) {
-        if let Some((num_wrong_pixels, diff_image)) = dify::diff::get_results(
+    ) -> Option<(i32, ImageBuffer<Rgba<u8>, Vec<u8>>)> {
+        dify::diff::get_results(
             gpu_render_image.clone(),
             cpu_render_image.clone(),
             threshold,
@@ -74,14 +111,6 @@ mod tests {
             None,
             &None,
             &None,
-        ) {
-            let _ = diff_image.save(path);
-            if num_wrong_pixels > failed_pixel_count_threshold {
-                panic!(
-                    "num_wrong_pixels {} > failed_pixel_count_threshold {}",
-                    num_wrong_pixels, failed_pixel_count_threshold
-                );
-            }
-        }
+        )
     }
 }
