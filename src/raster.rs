@@ -7,63 +7,13 @@ use egui::Vec2;
 // https://fgiesen.wordpress.com/2013/02/11/depth-buffers-done-quick-part/
 // https://fgiesen.wordpress.com/2013/02/16/depth-buffers-done-quick-part-2/
 
-pub trait PixelRaster {
-    const NEED_BARY: bool;
-    fn raster(&mut self, x: i64, y: i64, w0: i64, w1: i64, inv_area: f32);
-}
-
-pub struct WithBary<F>(pub F);
-impl<F> PixelRaster for WithBary<F>
-where
-    F: FnMut(i64, i64, f32, f32),
-{
-    const NEED_BARY: bool = true;
-
-    #[inline(always)]
-    fn raster(&mut self, x: i64, y: i64, w0: i64, w1: i64, inv_area: f32) {
-        let b0 = (w0 as f32) * inv_area;
-        let b1 = (w1 as f32) * inv_area;
-        (self.0)(x, y, b0, b1)
-    }
-}
-
-pub struct NoBary<F>(pub F);
-impl<F> PixelRaster for NoBary<F>
-where
-    F: FnMut(i64, i64),
-{
-    const NEED_BARY: bool = false;
-
-    #[inline(always)]
-    fn raster(&mut self, x: i64, y: i64, _w0: i64, _w1: i64, _inv_area: f32) {
-        (self.0)(x, y)
-    }
-}
-
 #[inline(always)]
-pub fn with_bary<F>(f: F) -> WithBary<F>
-where
-    F: FnMut(i64, i64, f32, f32),
-{
-    WithBary(f)
-}
-
-#[inline(always)]
-pub fn no_bary<F>(f: F) -> NoBary<F>
-where
-    F: FnMut(i64, i64),
-{
-    NoBary(f)
-}
-
-#[inline(always)]
-pub fn raster_tri_no_depth_no_backface_cull<R, const SUBPIX_BITS: i32>(
+pub fn raster_tri_no_depth_no_backface_cull<const SUBPIX_BITS: i32>(
     bounds: [i32; 4],
     scr_tri: [Vec2; 3],
-    mut raster: R,
-) where
-    R: PixelRaster,
-{
+    // x, y, w0, w1, inv_area
+    mut raster: impl FnMut(i64, i64, i64, i64, f32),
+) {
     let subpix_bits = SUBPIX_BITS as u32;
     let subpix: i64 = 1 << subpix_bits;
     let subpix_half: i64 = subpix >> 1;
@@ -102,11 +52,7 @@ pub fn raster_tri_no_depth_no_backface_cull<R, const SUBPIX_BITS: i32>(
     }
 
     let p = [min_x, min_y];
-    let inv_area: f32 = if R::NEED_BARY {
-        1.0 / (area as f32)
-    } else {
-        0.0
-    };
+    let inv_area = 1.0 / (area as f32);
 
     let mut stepper = SingleStepper::new(&scr0, &scr1, &scr2, &p, subpix);
 
@@ -115,7 +61,7 @@ pub fn raster_tri_no_depth_no_backface_cull<R, const SUBPIX_BITS: i32>(
             stepper.row_start();
             for x in min_x..=max_x {
                 if stepper.inside_tri_pos_area() {
-                    raster.raster(x, y, stepper.w0, stepper.w1, inv_area);
+                    raster(x, y, stepper.w0, stepper.w1, inv_area);
                 }
                 stepper.col_step();
             }
@@ -126,7 +72,7 @@ pub fn raster_tri_no_depth_no_backface_cull<R, const SUBPIX_BITS: i32>(
             stepper.row_start();
             for x in min_x..=max_x {
                 if stepper.inside_tri_neg_area() {
-                    raster.raster(x, y, stepper.w0, stepper.w1, inv_area);
+                    raster(x, y, stepper.w0, stepper.w1, inv_area);
                 }
                 stepper.col_step();
             }
@@ -253,6 +199,15 @@ pub fn orient2d_hp(a: &[i64; 2], b: &[i64; 2], c: &[i64; 2]) -> i64 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 }
 
+#[inline(always)]
 pub fn vec2_to_ivec2(v: egui::Vec2) -> [i64; 2] {
     [v.x as i64, v.y as i64]
+}
+
+#[inline(always)]
+pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
+    let b0 = (w0 as f32) * inv_area;
+    let b1 = (w1 as f32) * inv_area;
+    let b2 = 1.0 - b0 - b1;
+    (b0, b1, b2)
 }
