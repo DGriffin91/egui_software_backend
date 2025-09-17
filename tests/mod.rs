@@ -1,7 +1,8 @@
 mod tests {
+    use std::path::Path;
+
     use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
-    use image::{DynamicImage, ImageBuffer, Rgba};
-    use nv_flip::FlipImageRgb8;
+    use image::{ImageBuffer, Rgba};
 
     use egui_kittest::{Harness, HarnessBuilder};
 
@@ -41,19 +42,6 @@ mod tests {
         harness.run();
         let cpu_render_image = harness.render().unwrap();
 
-        // Compare with FLIP
-        let size = harness.ctx.screen_rect();
-        let width = size.width() as usize;
-        let height = size.height() as usize;
-
-        let (error_map, flip_vis_img) =
-            nv_flip(width, height, &gpu_render_image, &cpu_render_image);
-
-        let mut pool = nv_flip::FlipPool::from_image(&error_map);
-        println!("FLIP mean: {}", pool.mean());
-        println!("percentile: {}", pool.get_percentile(0.5, true));
-        println!("min..max: {} .. {}", pool.min_value(), pool.max_value());
-
         let _ = std::fs::create_dir("tests/tmp/");
         gpu_render_image
             .save("tests/tmp/gpu_render_image.png")
@@ -61,36 +49,39 @@ mod tests {
         cpu_render_image
             .save("tests/tmp/cpu_render_image.png")
             .unwrap();
-        flip_vis_img.save("tests/tmp/nv_flip.png").unwrap();
+
+        dify(
+            &gpu_render_image,
+            &cpu_render_image,
+            0.6, // egui's default is 0.6
+            1,   // egui's default is 0
+            "tests/tmp/render_diff.png",
+        );
     }
 
-    fn nv_flip(
-        width: usize,
-        height: usize,
-        ref_img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
-        test_img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
-    ) -> (
-        nv_flip::FlipImageFloat,
-        ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    fn dify<P: AsRef<Path>>(
+        gpu_render_image: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        cpu_render_image: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+        threshold: f32,
+        failed_pixel_count_threshold: i32,
+        path: P,
     ) {
-        let ref_img = nv_flip_rgb8(width, height, ref_img);
-        let test_img = nv_flip_rgb8(width, height, test_img);
-
-        let error_map = nv_flip::flip(ref_img, test_img, f32::MIN);
-        let vis = error_map.apply_color_lut(&nv_flip::magma_lut());
-        let vis_img = image::RgbImage::from_raw(vis.width(), vis.height(), vis.to_vec()).unwrap();
-        (error_map, vis_img)
-    }
-
-    fn nv_flip_rgb8(
-        width: usize,
-        height: usize,
-        gpu_render_image: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
-    ) -> FlipImageRgb8 {
-        FlipImageRgb8::with_data(
-            width as u32,
-            height as u32,
-            &DynamicImage::ImageRgba8(gpu_render_image.clone()).to_rgb8(),
-        )
+        if let Some((num_wrong_pixels, diff_image)) = dify::diff::get_results(
+            gpu_render_image.clone(),
+            cpu_render_image.clone(),
+            threshold,
+            true,
+            None,
+            &None,
+            &None,
+        ) {
+            let _ = diff_image.save(path);
+            if num_wrong_pixels > failed_pixel_count_threshold {
+                panic!(
+                    "num_wrong_pixels {} > failed_pixel_count_threshold {}",
+                    num_wrong_pixels, failed_pixel_count_threshold
+                );
+            }
+        }
     }
 }
