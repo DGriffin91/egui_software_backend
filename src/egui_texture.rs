@@ -1,4 +1,4 @@
-use egui::{TextureOptions, Vec2};
+use egui::{TextureFilter, TextureOptions, Vec2, vec2};
 
 use crate::vec4::{Vec4, vec4};
 
@@ -29,6 +29,17 @@ impl EguiTexture {
         let w = self.fsize.x;
         let h = self.fsize.y;
 
+        #[inline(always)]
+        fn mirror(v: f32) -> f32 {
+            ((v * 0.5 + 0.5).fract() - 0.5) * 2.0
+        }
+
+        let uv = match self.options.wrap_mode {
+            egui::TextureWrapMode::ClampToEdge => uv,
+            egui::TextureWrapMode::Repeat => vec2(uv.x.fract(), uv.y.fract()),
+            egui::TextureWrapMode::MirroredRepeat => vec2(mirror(uv.x), mirror(uv.y)),
+        };
+
         let sx = uv.x * w - 0.5;
         let sy = uv.y * h - 0.5;
 
@@ -47,7 +58,7 @@ impl EguiTexture {
 
         let c00 = self.data[(x0c as usize) + (y0c as usize) * self.width];
 
-        if fx == 0.0 && fy == 0.0 {
+        if self.options.magnification == TextureFilter::Nearest || (fx == 0.0 && fy == 0.0) {
             // if these are 0 the px at 0,0 will have full influence. Equivalent to nearest sampling.
             return c00;
         }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use egui::{Pos2, TextureOptions, Vec2, epaint::Vertex, vec2};
+use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
@@ -26,15 +26,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         return;
     };
 
-    if texture.options
-        != (TextureOptions {
-            magnification: egui::TextureFilter::Linear,
-            minification: egui::TextureFilter::Linear,
-            wrap_mode: egui::TextureWrapMode::ClampToEdge,
-            mipmap_mode: None,
-        })
-    {
-        todo!();
+    if texture.options.magnification != texture.options.minification {
+        todo!(); // Warn? Would need helper lanes to impl?
     }
 
     let indices = &mesh.indices;
