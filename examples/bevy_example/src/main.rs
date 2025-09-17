@@ -132,7 +132,7 @@ fn egui_render(
                 pixels_per_point,
             );
         } else {
-            egui_software_render.render(
+            egui_software_render.render_to_canvas(
                 buffer_ref.width,
                 buffer_ref.height,
                 &render_output.paint_jobs,

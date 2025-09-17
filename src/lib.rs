@@ -83,7 +83,7 @@ impl EguiSoftwareRender {
     /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.
     /// * `textures_delta` - The change in egui textures since last frame
     /// * `pixels_per_point` - The number of physical pixels for each logical point.
-    pub fn render(
+    pub fn render_to_canvas(
         &mut self,
         width: usize,
         height: usize,
@@ -457,7 +457,7 @@ impl EguiSoftwareRender {
 
         if self.canvas.data.is_empty() {
             panic!(
-                "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render()"
+                "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render_to_canvas()"
             )
         }
 

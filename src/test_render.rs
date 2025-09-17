@@ -50,7 +50,7 @@ impl TestRenderer for EguiSoftwareRender {
                 output.pixels_per_point,
             );
         } else {
-            self.render(
+            self.render_to_canvas(
                 width as usize,
                 height as usize,
                 &paint_jobs,

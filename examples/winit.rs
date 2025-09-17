@@ -158,7 +158,7 @@ fn main() {
                             full_output.pixels_per_point,
                         );
                     } else {
-                        egui_software_render.render(
+                        egui_software_render.render_to_canvas(
                             width as usize,
                             height as usize,
                             &clipped_primitives,

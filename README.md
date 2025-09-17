@@ -13,7 +13,7 @@ let out = ctx.run(raw_input, |ctx| {
 
 let primitives = ctx.tessellate(out.shapes, out.pixels_per_point);
 
-sw_render.render(width, height, &primitives, &out.textures_delta, out.pixels_per_point);
+sw_render.render_to_canvas(width, height, &primitives, &out.textures_delta, out.pixels_per_point);
 sw_render.blit_canvas_to_buffer(buffer);
 ```
 
