@@ -130,19 +130,16 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         let colors_match = color0_u8x4 == color1_u8x4 && color0_u8x4 == color2_u8x4;
         let mut requires_alpha_blending = true;
 
-        let mut use_bilinear = false; // TODO perf: specialize based on this 
-
         if uvs_match {
             const_tex_color_u8x4 = texture.sample_bilinear(uv0);
             const_tex_color = u8x4_to_vec4(&const_tex_color_u8x4);
-        } else {
-            let uvs_size = (uv0.max(uv1).max(uv2) - uv0.min(uv1).min(uv2)) * texture.fsize;
-            use_bilinear = uvs_size != fsize;
         }
+
         if colors_match {
             const_vert_color = color0;
             const_vert_color_u8x4 = vec4_to_u8x4_no_clamp(&const_vert_color);
         }
+
         if uvs_match && colors_match {
             let const_tri_color = const_vert_color * const_tex_color;
             const_tri_color_u8x4 = vec4_to_u8x4_no_clamp(&const_tri_color);
@@ -150,6 +147,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 requires_alpha_blending = false;
             }
         }
+
         if uvs_match
             && !colors_match
             && const_tex_color_u8x4[3] == 255
@@ -176,25 +174,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             tri2[1].pos += vert_offset;
             tri2[2].pos += vert_offset;
 
-            #[inline(always)]
-            fn close(a: f32, b: f32) -> bool {
-                //(a - b).abs() <= 0.1
-                a == b
-            }
-
-            // https://github.com/emilk/imgui_software_renderer/blob/b5ae63a9e42eccf7db3bf64696761a53424c53dd/src/imgui_sw.cpp#L577
-            found_rect = (close(tri[0].pos.x, tri_min.x) || close(tri[0].pos.x, tri_max.x))
-                && (close(tri[0].pos.y, tri_min.y) || close(tri[0].pos.y, tri_max.y))
-                && (close(tri[1].pos.x, tri_min.x) || close(tri[1].pos.x, tri_max.x))
-                && (close(tri[1].pos.y, tri_min.y) || close(tri[1].pos.y, tri_max.y))
-                && (close(tri[2].pos.x, tri_min.x) || close(tri[2].pos.x, tri_max.x))
-                && (close(tri[2].pos.y, tri_min.y) || close(tri[2].pos.y, tri_max.y))
-                && (close(tri2[0].pos.x, tri_min.x) || close(tri2[0].pos.x, tri_max.x))
-                && (close(tri2[0].pos.y, tri_min.y) || close(tri2[0].pos.y, tri_max.y))
-                && (close(tri2[1].pos.x, tri_min.x) || close(tri2[1].pos.x, tri_max.x))
-                && (close(tri2[1].pos.y, tri_min.y) || close(tri2[1].pos.y, tri_max.y))
-                && (close(tri2[2].pos.x, tri_min.x) || close(tri2[2].pos.x, tri_max.x))
-                && (close(tri2[2].pos.y, tri_min.y) || close(tri2[2].pos.y, tri_max.y));
+            found_rect = tri_verts_match_corners(tri_min, tri_max, tri, tri2);
 
             if found_rect {
                 let tri_area = egui_orient2df(&tri[0].pos, &tri[1].pos, &tri[2].pos).abs();
@@ -202,13 +182,22 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 let areas_match = (tri_area - rect_area).abs() < 0.5;
 
                 if areas_match {
-                    tri2_uvs_match = tri[0].uv == tri2[0].uv
-                        && tri[0].uv == tri2[1].uv
-                        && tri[0].uv == tri2[2].uv;
+                    if rect_area.abs() < 0.25 {
+                        i += 6; // Skip both tris
+                        continue; // early out of rects smaller than quarter px
+                    }
 
-                    tri2_colors_match = tri[0].color == tri2[0].color
-                        && tri[0].color == tri2[1].color
-                        && tri[0].color == tri2[2].color;
+                    if uvs_match {
+                        tri2_uvs_match = tri[0].uv == tri2[0].uv
+                            && tri[0].uv == tri2[1].uv
+                            && tri[0].uv == tri2[2].uv;
+                    }
+
+                    if colors_match {
+                        tri2_colors_match = tri[0].color == tri2[0].color
+                            && tri[0].color == tri2[1].color
+                            && tri[0].color == tri2[2].color;
+                    }
                 } else {
                     found_rect = false;
                 }
@@ -276,7 +265,6 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                     tri_min,
                     tri_max,
                     &tri,
-                    use_bilinear,
                 );
                 i += 6; // Skip both tris
                 continue;
@@ -326,7 +314,6 @@ fn draw_textured_rect(
     tri_min: Vec2,
     tri_max: Vec2,
     tri: &[Vertex; 3],
-    _use_bilinear: bool,
 ) {
     let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
     let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
@@ -354,7 +341,7 @@ fn draw_textured_rect(
         tri[0].uv.y.max(tri[1].uv.y).max(tri[2].uv.y),
     );
 
-    let uv_step = (max_uv - min_uv) / vec2(sizex as f32, sizey as f32);
+    let uv_step = (max_uv - min_uv) / (tri_max - tri_min);
     min_uv += uv_step * 0.5; // Raster at pixel centers
     let mut uv = min_uv;
     for y in min_y..max_y {
@@ -368,35 +355,6 @@ fn draw_textured_rect(
             uv.x += uv_step.x;
         }
         uv.y += uv_step.y;
-    }
-}
-
-fn draw_solid_tri<const SUBPIX_BITS: i32>(
-    buffer: &mut BufferMutRef,
-    const_tri_color_u8x4: [u8; 4],
-    clip_bounds: &[i32; 4],
-    scr_tri: &[Vec2; 3],
-    requires_alpha_blending: bool,
-) {
-    // TODO is scanline faster when barycentrics are not needed?
-    if requires_alpha_blending {
-        raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
-            *clip_bounds,
-            *scr_tri,
-            no_bary(|x, y| {
-                let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-                let src = const_tri_color_u8x4;
-                *pixel = egui_blend_u8(src, *pixel);
-            }),
-        );
-    } else {
-        raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
-            *clip_bounds,
-            *scr_tri,
-            no_bary(|x, y| {
-                *buffer.get_mut_clamped(x as usize, y as usize) = const_tri_color_u8x4;
-            }),
-        );
     }
 }
 
@@ -442,7 +400,63 @@ fn draw_solid_rect(
     }
 }
 
+fn draw_solid_tri<const SUBPIX_BITS: i32>(
+    buffer: &mut BufferMutRef,
+    const_tri_color_u8x4: [u8; 4],
+    clip_bounds: &[i32; 4],
+    scr_tri: &[Vec2; 3],
+    requires_alpha_blending: bool,
+) {
+    // TODO is scanline faster when barycentrics are not needed?
+    if requires_alpha_blending {
+        raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
+            *clip_bounds,
+            *scr_tri,
+            no_bary(|x, y| {
+                let pixel = buffer.get_mut_clamped(x as usize, y as usize);
+                let src = const_tri_color_u8x4;
+                *pixel = egui_blend_u8(src, *pixel);
+            }),
+        );
+    } else {
+        raster_tri_no_depth_no_backface_cull::<_, SUBPIX_BITS>(
+            *clip_bounds,
+            *scr_tri,
+            no_bary(|x, y| {
+                *buffer.get_mut_clamped(x as usize, y as usize) = const_tri_color_u8x4;
+            }),
+        );
+    }
+}
+
 #[inline(always)]
 pub fn egui_orient2df(a: &Pos2, b: &Pos2, c: &Pos2) -> f32 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+fn tri_verts_match_corners(
+    tri_min: Vec2,
+    tri_max: Vec2,
+    tri: [Vertex; 3],
+    tri2: [Vertex; 3],
+) -> bool {
+    #[inline(always)]
+    fn close(a: f32, b: f32) -> bool {
+        //(a - b).abs() <= 0.1
+        a == b
+    }
+
+    // https://github.com/emilk/imgui_software_renderer/blob/b5ae63a9e42eccf7db3bf64696761a53424c53dd/src/imgui_sw.cpp#L577
+    (close(tri[0].pos.x, tri_min.x) || close(tri[0].pos.x, tri_max.x))
+        && (close(tri[0].pos.y, tri_min.y) || close(tri[0].pos.y, tri_max.y))
+        && (close(tri[1].pos.x, tri_min.x) || close(tri[1].pos.x, tri_max.x))
+        && (close(tri[1].pos.y, tri_min.y) || close(tri[1].pos.y, tri_max.y))
+        && (close(tri[2].pos.x, tri_min.x) || close(tri[2].pos.x, tri_max.x))
+        && (close(tri[2].pos.y, tri_min.y) || close(tri[2].pos.y, tri_max.y))
+        && (close(tri2[0].pos.x, tri_min.x) || close(tri2[0].pos.x, tri_max.x))
+        && (close(tri2[0].pos.y, tri_min.y) || close(tri2[0].pos.y, tri_max.y))
+        && (close(tri2[1].pos.x, tri_min.x) || close(tri2[1].pos.x, tri_max.x))
+        && (close(tri2[1].pos.y, tri_min.y) || close(tri2[1].pos.y, tri_max.y))
+        && (close(tri2[2].pos.x, tri_min.x) || close(tri2[2].pos.x, tri_max.x))
+        && (close(tri2[2].pos.y, tri_min.y) || close(tri2[2].pos.y, tri_max.y))
 }
