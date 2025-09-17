@@ -83,10 +83,6 @@ impl EguiSoftwareRender {
     /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.
     /// * `textures_delta` - The change in egui textures since last frame
     /// * `pixels_per_point` - The number of physical pixels for each logical point.
-    /// * `direct_draw_buffer` - Optional buffer to render directly into, bypassing `CachedPrimitive`.  
-    ///   This is slower and mainly intended for testing.
-    /// * `try_convert_tris_to_rects` - If `true`: attempts to optimize by converting suitable triangle pairs into
-    ///   rectangles for faster rendering. Things *should* look the same with this set to `true` while rendering faster.
     pub fn render(
         &mut self,
         width: usize,
@@ -136,6 +132,7 @@ impl EguiSoftwareRender {
         self.free_textures(textures_delta);
     }
 
+    /// Render directly into buffer without cache. This is much slower and mainly intended for testing.
     pub fn render_direct(
         &mut self,
         direct_draw_buffer: &mut BufferMutRef,

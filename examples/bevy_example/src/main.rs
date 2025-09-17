@@ -5,13 +5,15 @@ use bevy::{
     render::{RenderPlugin, settings::WgpuSettings},
     window::{PresentMode, WindowResolution},
 };
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{
+    EguiContext, EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass,
+    EguiRenderOutput,
+};
 use egui_demo_lib::DemoWindows;
+use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
 
-use crate::egui_backend_plugin::EguiSoftwareRenderPlugin;
-use crate::softbuffer_plugin::SoftBufferPlugin;
+use crate::softbuffer_plugin::{FrameSurface, SoftBufferPlugin, clear, present};
 
-pub mod egui_backend_plugin;
 pub mod softbuffer_plugin;
 
 #[derive(FromArgs)]
@@ -20,6 +22,20 @@ struct Args {
     /// render with the standard wgpu render backend rather than with the software renderer.
     #[argh(switch)]
     gpu: bool,
+
+    /// disable raster optimizations. Rasterize everything with triangles, always calculate vertex colors, uvs, use
+    /// bilinear everywhere, etc... Things should look the same with this set to true while rendering faster.
+    #[argh(switch)]
+    no_opt: bool,
+
+    /// disable attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
+    /// Things should look the same with this set to true while rendering faster.
+    #[argh(switch)]
+    no_rect: bool,
+
+    /// render directly into buffer without cache. This is much slower and mainly intended for testing.
+    #[argh(switch)]
+    direct: bool,
 }
 
 fn main() {
@@ -61,7 +77,19 @@ fn main() {
         .add_systems(EguiPrimaryContextPass, ui_example_system);
 
     if !args.gpu {
-        app.add_plugins((SoftBufferPlugin, EguiSoftwareRenderPlugin));
+        app.add_plugins(SoftBufferPlugin)
+            .insert_resource(EguiSoftwareRenderResource(
+                EguiSoftwareRender::new(ColorFieldOrder::BGRA)
+                    .with_allow_raster_opt(!args.no_opt)
+                    .with_convert_tris_to_rects(!args.no_rect),
+            ))
+            .add_systems(
+                PostUpdate,
+                egui_render
+                    .after(clear)
+                    .before(present)
+                    .in_set(EguiPostUpdateSet::ProcessOutput),
+            );
     }
 
     app.run();
@@ -79,4 +107,39 @@ fn ui_example_system(mut contexts: EguiContexts, mut demo: NonSendMut<DemoApp>) 
     egui_extras::install_image_loaders(contexts.ctx_mut()?);
     demo.0.ui(contexts.ctx_mut()?);
     Ok(())
+}
+
+#[derive(Resource, Deref, DerefMut)]
+struct EguiSoftwareRenderResource(EguiSoftwareRender);
+
+fn egui_render(
+    mut contexts: Query<(&mut EguiContext, &mut EguiRenderOutput)>,
+    mut surface: NonSendMut<FrameSurface>,
+    mut egui_software_render: ResMut<EguiSoftwareRenderResource>,
+) {
+    let args: Args = argh::from_env();
+    let Some(mut frame_buffer) = surface.buffer() else {
+        return;
+    };
+    let mut buffer_ref = frame_buffer.as_mut();
+    for (mut context, render_output) in contexts.iter_mut() {
+        let pixels_per_point = context.get_mut().pixels_per_point();
+        if args.direct {
+            egui_software_render.render_direct(
+                &mut buffer_ref,
+                &render_output.paint_jobs,
+                &render_output.textures_delta,
+                pixels_per_point,
+            );
+        } else {
+            egui_software_render.render(
+                buffer_ref.width,
+                buffer_ref.height,
+                &render_output.paint_jobs,
+                &render_output.textures_delta,
+                pixels_per_point,
+            );
+            egui_software_render.blit_canvas_to_buffer(&mut buffer_ref);
+        }
+    }
 }

@@ -1,5 +1,6 @@
 // Based on: https://github.com/rust-windowing/softbuffer/blob/046de9228d89369151599f3f50dc4b75bd5e522b/examples/winit.rs
 
+use argh::FromArgs;
 use egui_demo_lib::ColorTest;
 use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
 use std::num::NonZeroU32;
@@ -14,22 +15,38 @@ use crate::winit_app::WinitApp;
 #[path = "../examples/utils/winit_app.rs"]
 mod winit_app;
 
+#[derive(FromArgs, Copy, Clone)]
+/// `bevy` example
+struct Args {
+    /// disable raster optimizations. Rasterize everything with triangles, always calculate vertex colors, uvs, use
+    /// bilinear everywhere, etc... Things should look the same with this set to true while rendering faster.
+    #[argh(switch)]
+    no_opt: bool,
+
+    /// disable attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
+    /// Things should look the same with this set to true while rendering faster.
+    #[argh(switch)]
+    no_rect: bool,
+
+    /// render directly into buffer without cache. This is much slower and mainly intended for testing.
+    #[argh(switch)]
+    direct: bool,
+}
+
 struct AppState {
     surface: softbuffer::Surface<OwnedDisplayHandle, Rc<Window>>,
     egui_ctx: egui::Context,
     egui_winit: egui_winit::State,
 }
 
-const RENDER_DIRECT: bool = false; // TODO make env arg or runtime selectable
-const ALLOW_RASTER_OPT: bool = true; // TODO make env arg or runtime selectable
-const CONVERT_TRIS_TO_RECTS: bool = true; // TODO make env arg or runtime selectable
-
 fn main() {
+    let args: Args = argh::from_env();
+
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
     let mut egui_color_test = ColorTest::default();
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA)
-        .with_allow_raster_opt(ALLOW_RASTER_OPT)
-        .with_convert_tris_to_rects(CONVERT_TRIS_TO_RECTS);
+        .with_allow_raster_opt(!args.no_opt)
+        .with_convert_tris_to_rects(!args.no_rect);
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -127,13 +144,15 @@ fn main() {
                     let mut buffer = app.surface.buffer_mut().unwrap();
                     buffer.fill(0); // CLEAR
 
-                    if RENDER_DIRECT {
+                    let buffer_ref = &mut BufferMutRef::new(
+                        bytemuck::cast_slice_mut(&mut buffer),
+                        width as usize,
+                        height as usize,
+                    );
+
+                    if args.direct {
                         egui_software_render.render_direct(
-                            &mut BufferMutRef::new(
-                                bytemuck::cast_slice_mut(&mut buffer),
-                                width as usize,
-                                height as usize,
-                            ),
+                            buffer_ref,
                             &clipped_primitives,
                             &full_output.textures_delta,
                             full_output.pixels_per_point,
@@ -146,11 +165,7 @@ fn main() {
                             &full_output.textures_delta,
                             full_output.pixels_per_point,
                         );
-                        egui_software_render.blit_canvas_to_buffer(&mut BufferMutRef::new(
-                            bytemuck::cast_slice_mut(&mut buffer),
-                            width as usize,
-                            height as usize,
-                        ));
+                        egui_software_render.blit_canvas_to_buffer(buffer_ref);
                     }
 
                     buffer.present().unwrap();
