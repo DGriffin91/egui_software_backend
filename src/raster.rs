@@ -8,10 +8,12 @@ use egui::Vec2;
 // https://fgiesen.wordpress.com/2013/02/16/depth-buffers-done-quick-part-2/
 
 #[inline(always)]
+/// ss for screen space (unit is screen pixel)
+/// sp for subpixel space (unit fraction of screen pixel)
 pub fn raster_tri_no_depth_no_backface_cull<const SUBPIX_BITS: i32>(
-    bounds: [i32; 4],
-    scr_tri: [Vec2; 3],
-    // x, y, w0, w1, inv_area
+    ss_bounds: [i32; 4],
+    ss_tri: [Vec2; 3],
+    // ss_x, ss_y, w0, w1, sp_inv_area
     mut raster: impl FnMut(i64, i64, i64, i64, f32),
 ) {
     let subpix_bits = SUBPIX_BITS as u32;
@@ -20,59 +22,65 @@ pub fn raster_tri_no_depth_no_backface_cull<const SUBPIX_BITS: i32>(
     let fsubpix = subpix as f32;
 
     let bounds = [
-        bounds[0] as i64,
-        bounds[1] as i64,
-        bounds[2] as i64,
-        bounds[3] as i64,
+        ss_bounds[0] as i64,
+        ss_bounds[1] as i64,
+        ss_bounds[2] as i64,
+        ss_bounds[3] as i64,
     ];
 
-    let scr0 = vec2_to_ivec2(scr_tri[0] * fsubpix);
-    let scr1 = vec2_to_ivec2(scr_tri[1] * fsubpix);
-    let scr2 = vec2_to_ivec2(scr_tri[2] * fsubpix);
+    // sp for subpixel space
+    let sp0 = vec2_to_ivec2(ss_tri[0] * fsubpix);
+    let sp1 = vec2_to_ivec2(ss_tri[1] * fsubpix);
+    let sp2 = vec2_to_ivec2(ss_tri[2] * fsubpix);
 
-    let area = orient2d_hp(&scr0, &scr1, &scr2);
-    if area == 0 {
+    let sp_area = orient2d(&sp0, &sp1, &sp2);
+    if sp_area == 0 {
         return;
     }
 
-    let tri_min_x = scr0[0].min(scr1[0]).min(scr2[0]);
-    let tri_min_y = scr0[1].min(scr1[1]).min(scr2[1]);
-    let tri_max_x = scr0[0].max(scr1[0]).max(scr2[0]);
-    let tri_max_y = scr0[1].max(scr1[1]).max(scr2[1]);
+    let sp_min_x = sp0[0].min(sp1[0]).min(sp2[0]);
+    let sp_min_y = sp0[1].min(sp1[1]).min(sp2[1]);
+    let sp_max_x = sp0[0].max(sp1[0]).max(sp2[0]);
+    let sp_max_y = sp0[1].max(sp1[1]).max(sp2[1]);
 
-    let min_x = ((tri_min_x - subpix_half) >> subpix_bits).clamp(bounds[0], bounds[2] - 1);
-    let min_y = ((tri_min_y - subpix_half) >> subpix_bits).clamp(bounds[1], bounds[3] - 1);
-    let max_x = ((tri_max_x + subpix_half) >> subpix_bits).clamp(bounds[0], bounds[2] - 1);
-    let max_y = ((tri_max_y + subpix_half) >> subpix_bits).clamp(bounds[1], bounds[3] - 1);
+    let ss_min_x = ((sp_min_x - subpix_half) >> subpix_bits).clamp(bounds[0], bounds[2] - 1);
+    let ss_min_y = ((sp_min_y - subpix_half) >> subpix_bits).clamp(bounds[1], bounds[3] - 1);
+    let ss_max_x = ((sp_max_x + subpix_half) >> subpix_bits).clamp(bounds[0], bounds[2] - 1);
+    let ss_max_y = ((sp_max_y + subpix_half) >> subpix_bits).clamp(bounds[1], bounds[3] - 1);
 
-    let sizex = max_x - min_x;
-    let sizey = max_y - min_y;
-    if sizex <= 0 || sizey <= 0 {
+    // The center of the minimum point in sub pixel space
+    let sp_min_p = [
+        ss_min_x * subpix + subpix_half,
+        ss_min_y * subpix + subpix_half,
+    ];
+
+    let ss_sizex = ss_max_x - ss_min_x;
+    let ss_sizey = ss_max_y - ss_min_y;
+    if ss_sizex <= 0 || ss_sizey <= 0 {
         return;
     }
 
-    let p = [min_x, min_y];
-    let inv_area = 1.0 / (area as f32);
+    let sp_inv_area = 1.0 / (sp_area as f32);
 
-    let mut stepper = SingleStepper::new(&scr0, &scr1, &scr2, &p, subpix);
+    let mut stepper = SingleStepper::new(&sp0, &sp1, &sp2, &sp_min_p, subpix);
 
-    if area >= 0 {
-        for y in min_y..=max_y {
+    if sp_area > 0 {
+        for ss_y in ss_min_y..=ss_max_y {
             stepper.row_start();
-            for x in min_x..=max_x {
+            for ss_x in ss_min_x..=ss_max_x {
                 if stepper.inside_tri_pos_area() {
-                    raster(x, y, stepper.w0, stepper.w1, inv_area);
+                    raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
                 }
                 stepper.col_step();
             }
             stepper.row_step();
         }
     } else {
-        for y in min_y..=max_y {
+        for ss_y in ss_min_y..=ss_max_y {
             stepper.row_start();
-            for x in min_x..=max_x {
+            for ss_x in ss_min_x..=ss_max_x {
                 if stepper.inside_tri_neg_area() {
-                    raster(x, y, stepper.w0, stepper.w1, inv_area);
+                    raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
                 }
                 stepper.col_step();
             }
@@ -100,22 +108,29 @@ pub struct SingleStepper {
 }
 
 impl SingleStepper {
-    pub fn new(v0: &[i64; 2], v1: &[i64; 2], v2: &[i64; 2], p: &[i64; 2], subpix: i64) -> Self {
+    pub fn new(
+        sp0: &[i64; 2],
+        sp1: &[i64; 2],
+        sp2: &[i64; 2],
+        sp_min_p: &[i64; 2],
+        subpix: i64,
+    ) -> Self {
         SingleStepper {
-            e12: SingleStep::new(v1, v2, p, subpix),
-            e20: SingleStep::new(v2, v0, p, subpix),
-            e01: SingleStep::new(v0, v1, p, subpix),
+            e12: SingleStep::new(sp1, sp2, sp_min_p, subpix),
+            e20: SingleStep::new(sp2, sp0, sp_min_p, subpix),
+            e01: SingleStep::new(sp0, sp1, sp_min_p, subpix),
             w0: 0,
             w1: 0,
             w2: 0,
-            bias0: if is_top_left(v1, v2) { 0 } else { -1 },
-            bias1: if is_top_left(v2, v0) { 0 } else { -1 },
-            bias2: if is_top_left(v0, v1) { 0 } else { -1 },
+            bias0: if is_top_left(sp1, sp2) { 0 } else { -1 },
+            bias1: if is_top_left(sp2, sp0) { 0 } else { -1 },
+            bias2: if is_top_left(sp0, sp1) { 0 } else { -1 },
         }
     }
 
     #[inline(always)]
     pub fn inside_tri_pos_area(&self) -> bool {
+        // None w are negative
         let m = ((self.w0 + self.bias0) as u64)
             | ((self.w1 + self.bias1) as u64)
             | ((self.w2 + self.bias2) as u64);
@@ -124,6 +139,7 @@ impl SingleStepper {
 
     #[inline(always)]
     pub fn inside_tri_neg_area(&self) -> bool {
+        // All w are negative
         let m = ((self.w0 + self.bias0) as u64)
             & ((self.w1 + self.bias1) as u64)
             & ((self.w2 + self.bias2) as u64);
@@ -132,16 +148,16 @@ impl SingleStepper {
 
     #[inline(always)]
     pub fn row_step(&mut self) {
-        self.e12.row += self.e12.one_step_y;
-        self.e20.row += self.e20.one_step_y;
-        self.e01.row += self.e01.one_step_y;
+        self.e12.row += self.e12.step_y;
+        self.e20.row += self.e20.step_y;
+        self.e01.row += self.e01.step_y;
     }
 
     #[inline(always)]
     pub fn col_step(&mut self) {
-        self.w0 += self.e12.one_step_x;
-        self.w1 += self.e20.one_step_x;
-        self.w2 += self.e01.one_step_x;
+        self.w0 += self.e12.step_x;
+        self.w1 += self.e20.step_x;
+        self.w2 += self.e01.step_x;
     }
 
     #[inline(always)]
@@ -153,49 +169,28 @@ impl SingleStepper {
 }
 
 pub struct SingleStep {
-    pub one_step_x: i64,
-    pub one_step_y: i64,
+    pub step_x: i64,
+    pub step_y: i64,
     pub row: i64,
 }
 
 impl SingleStep {
-    pub const STEP_XSIZE: i64 = 1;
-    pub const STEP_YSIZE: i64 = 1;
-
     #[inline(always)]
-    fn block_centers(p: &[i64; 2], subpix: i64) -> (i64, i64) {
-        let subpix_half = subpix >> 1;
-        let base_x = p[0] * subpix + subpix_half;
-        let base_y = p[1] * subpix + subpix_half;
-        (base_x, base_y)
-    }
-
-    #[inline(always)]
-    pub fn new(v0: &[i64; 2], v1: &[i64; 2], p: &[i64; 2], subpix: i64) -> Self {
-        let a = v0[1] - v1[1];
-        let b = v1[0] - v0[0];
-        let c = (v0[0]) * (v1[1]) - (v0[1]) * (v1[0]);
-
-        let step_x = (a * Self::STEP_XSIZE).saturating_mul(subpix);
-        let step_y = (b * Self::STEP_YSIZE).saturating_mul(subpix);
-
-        let one_step_x = step_x;
-        let one_step_y = step_y;
-
-        let (x, y) = Self::block_centers(p, subpix);
-
-        let edge = a * x + b * y + c;
+    pub fn new(sp0: &[i64; 2], sp1: &[i64; 2], sp_min_p: &[i64; 2], subpix: i64) -> Self {
+        let a = sp0[1] - sp1[1];
+        let b = sp1[0] - sp0[0];
+        let c = (sp0[0]) * (sp1[1]) - (sp0[1]) * (sp1[0]);
 
         Self {
-            one_step_x,
-            one_step_y,
-            row: edge,
+            step_x: a * subpix,
+            step_y: b * subpix,
+            row: a * sp_min_p[0] + b * sp_min_p[1] + c,
         }
     }
 }
 
 #[inline(always)]
-pub fn orient2d_hp(a: &[i64; 2], b: &[i64; 2], c: &[i64; 2]) -> i64 {
+pub fn orient2d(a: &[i64; 2], b: &[i64; 2], c: &[i64; 2]) -> i64 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 }
 
