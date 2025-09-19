@@ -10,7 +10,7 @@ use egui::Vec2;
 #[inline(always)]
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
-pub fn raster_tri_no_depth_no_backface_cull<const SUBPIX_BITS: i32>(
+pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
     ss_tri: [Vec2; 3],
     // ss_x, ss_y, w0, w1, sp_inv_area
@@ -34,7 +34,7 @@ pub fn raster_tri_no_depth_no_backface_cull<const SUBPIX_BITS: i32>(
     let sp2 = vec2_to_ivec2(ss_tri[2] * fsubpix);
 
     let sp_area = orient2d(&sp0, &sp1, &sp2);
-    if sp_area == 0 {
+    if sp_area <= 0 {
         return;
     }
 
@@ -64,28 +64,15 @@ pub fn raster_tri_no_depth_no_backface_cull<const SUBPIX_BITS: i32>(
 
     let mut stepper = SingleStepper::new(&sp0, &sp1, &sp2, &sp_min_p, subpix);
 
-    if sp_area > 0 {
-        for ss_y in ss_min_y..=ss_max_y {
-            stepper.row_start();
-            for ss_x in ss_min_x..=ss_max_x {
-                if stepper.inside_tri_pos_area() {
-                    raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
-                }
-                stepper.col_step();
+    for ss_y in ss_min_y..=ss_max_y {
+        stepper.row_start();
+        for ss_x in ss_min_x..=ss_max_x {
+            if stepper.inside_tri_pos_area() {
+                raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
             }
-            stepper.row_step();
+            stepper.col_step();
         }
-    } else {
-        for ss_y in ss_min_y..=ss_max_y {
-            stepper.row_start();
-            for ss_x in ss_min_x..=ss_max_x {
-                if stepper.inside_tri_neg_area() {
-                    raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
-                }
-                stepper.col_step();
-            }
-            stepper.row_step();
-        }
+        stepper.row_step();
     }
 }
 
@@ -135,15 +122,6 @@ impl SingleStepper {
             | ((self.w1 + self.bias1) as u64)
             | ((self.w2 + self.bias2) as u64);
         (m & 0x8000_0000_0000_0000) == 0
-    }
-
-    #[inline(always)]
-    pub fn inside_tri_neg_area(&self) -> bool {
-        // All w are negative
-        let m = ((self.w0 + self.bias0) as u64)
-            & ((self.w1 + self.bias1) as u64)
-            & ((self.w2 + self.bias2) as u64);
-        (m & 0x8000_0000_0000_0000) != 0
     }
 
     #[inline(always)]

@@ -5,7 +5,7 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 use crate::{
     BufferMutRef, EguiTexture,
     egui_texture::{egui_blend, egui_blend_u8, u8x4_to_vec4, unorm_mult4x4, vec4_to_u8x4_no_clamp},
-    raster::{bary, raster_tri_no_depth_no_backface_cull},
+    raster::{bary, raster_tri_no_depth_backface_cull},
     vec4::Vec4,
 };
 
@@ -101,7 +101,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         let uv2 = vec2(tri[2].uv.x, tri[2].uv.y);
 
         if !allow_raster_opt {
-            raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+            raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
                 clip_bounds,
                 scr_tri,
                 |x, y, w0, w1, inv_area| {
@@ -220,7 +220,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         } else if uvs_match {
             // if uvs match but colors don't match
             if requires_alpha_blending {
-                raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+                raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
                     clip_bounds,
                     scr_tri,
                     |x, y, w0, w1, inv_area| {
@@ -233,7 +233,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                     },
                 );
             } else {
-                raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+                raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
                     clip_bounds,
                     scr_tri,
                     |x, y, w0, w1, inv_area| {
@@ -261,7 +261,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 i += 6; // Skip both tris
                 continue;
             } else {
-                raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+                raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
                     clip_bounds,
                     scr_tri,
                     |x, y, w0, w1, inv_area| {
@@ -278,7 +278,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         } else {
             // Unique colors and uvs, didn't find a rect.
             // This is the standard full version sans shortcuts. Everything could be rendered using just this.
-            raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+            raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
                 clip_bounds,
                 scr_tri,
                 |x, y, w0, w1, inv_area| {
@@ -402,7 +402,7 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
 ) {
     // TODO is scanline faster when barycentrics are not needed?
     if requires_alpha_blending {
-        raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+        raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
             *clip_bounds,
             *scr_tri,
             |x, y, _w0, _w1, _inv_area| {
@@ -412,7 +412,7 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
             },
         );
     } else {
-        raster_tri_no_depth_no_backface_cull::<SUBPIX_BITS>(
+        raster_tri_no_depth_backface_cull::<SUBPIX_BITS>(
             *clip_bounds,
             *scr_tri,
             |x, y, _w0, _w1, _inv_area| {

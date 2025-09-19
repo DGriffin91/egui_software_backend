@@ -5,7 +5,7 @@ use egui::{Color32, Pos2, Vec2, vec2};
 use crate::{
     egui_texture::{EguiTexture, egui_blend_u8, swizzle_rgba_bgra},
     hash::Hash32,
-    render::draw_egui_mesh,
+    render::{draw_egui_mesh, egui_orient2df},
 };
 
 pub(crate) mod egui_texture;
@@ -235,6 +235,21 @@ impl EguiSoftwareRender {
 
             *mesh_min = mesh_min.min(v.pos.to_vec2());
             *mesh_max = mesh_max.max(v.pos.to_vec2());
+        }
+
+        // Make all the tris face forward (ccw) to simplify rasterization.
+        // TODO perf: could store the area so it's not recomputed later.
+        for i in (0..self.px_mesh.indices.len()).step_by(3) {
+            let i0 = self.px_mesh.indices[i] as usize;
+            let i1 = self.px_mesh.indices[i + 1] as usize;
+            let i2 = self.px_mesh.indices[i + 2] as usize;
+            let v0 = self.px_mesh.vertices[i0];
+            let v1 = self.px_mesh.vertices[i1];
+            let v2 = self.px_mesh.vertices[i2];
+            let area = egui_orient2df(&v0.pos, &v1.pos, &v2.pos);
+            if area < 0.0 {
+                self.px_mesh.indices.swap(i + 1, i + 2);
+            }
         }
     }
 
