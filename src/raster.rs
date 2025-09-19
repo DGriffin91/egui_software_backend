@@ -1,5 +1,7 @@
 use egui::Vec2;
 
+use crate::i64vec2::{I64Vec2, i64vec2};
+
 // Based on https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/
 // Particularly:
 // https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
@@ -21,42 +23,34 @@ pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
     let subpix_half: i64 = subpix >> 1;
     let fsubpix = subpix as f32;
 
-    let bounds = [
-        ss_bounds[0] as i64,
-        ss_bounds[1] as i64,
-        ss_bounds[2] as i64,
-        ss_bounds[3] as i64,
-    ];
+    let ss_min_bound = i64vec2(ss_bounds[0] as i64, ss_bounds[1] as i64);
+    let ss_max_bound = i64vec2(ss_bounds[2] as i64, ss_bounds[3] as i64);
 
     // sp for subpixel space
-    let sp0 = vec2_to_ivec2(ss_tri[0] * fsubpix);
-    let sp1 = vec2_to_ivec2(ss_tri[1] * fsubpix);
-    let sp2 = vec2_to_ivec2(ss_tri[2] * fsubpix);
+    let sp0 = I64Vec2::from_vec2(ss_tri[0] * fsubpix);
+    let sp1 = I64Vec2::from_vec2(ss_tri[1] * fsubpix);
+    let sp2 = I64Vec2::from_vec2(ss_tri[2] * fsubpix);
 
     let sp_area = orient2d(&sp0, &sp1, &sp2);
     if sp_area <= 0 {
         return;
     }
 
-    let sp_min_x = sp0[0].min(sp1[0]).min(sp2[0]);
-    let sp_min_y = sp0[1].min(sp1[1]).min(sp2[1]);
-    let sp_max_x = sp0[0].max(sp1[0]).max(sp2[0]);
-    let sp_max_y = sp0[1].max(sp1[1]).max(sp2[1]);
+    let sp_min = sp0.min(sp1).min(sp2);
+    let sp_max = sp0.max(sp1).max(sp2);
 
-    let ss_min_x = ((sp_min_x - subpix_half) >> subpix_bits).clamp(bounds[0], bounds[2] - 1);
-    let ss_min_y = ((sp_min_y - subpix_half) >> subpix_bits).clamp(bounds[1], bounds[3] - 1);
-    let ss_max_x = ((sp_max_x + subpix_half) >> subpix_bits).clamp(bounds[0], bounds[2] - 1);
-    let ss_max_y = ((sp_max_y + subpix_half) >> subpix_bits).clamp(bounds[1], bounds[3] - 1);
+    let ss_min = ((sp_min - subpix_half) >> subpix_bits)
+        .max(ss_min_bound)
+        .min(ss_max_bound - 1);
+    let ss_max = ((sp_max + subpix_half) >> subpix_bits)
+        .max(ss_min_bound)
+        .min(ss_max_bound - 1);
 
     // The center of the minimum point in sub pixel space
-    let sp_min_p = [
-        ss_min_x * subpix + subpix_half,
-        ss_min_y * subpix + subpix_half,
-    ];
+    let sp_min_p = ss_min * subpix + subpix_half;
 
-    let ss_sizex = ss_max_x - ss_min_x;
-    let ss_sizey = ss_max_y - ss_min_y;
-    if ss_sizex <= 0 || ss_sizey <= 0 {
+    let ss_size = ss_max - ss_min;
+    if ss_size.x <= 0 || ss_size.y <= 0 {
         return;
     }
 
@@ -64,9 +58,9 @@ pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
 
     let mut stepper = SingleStepper::new(&sp0, &sp1, &sp2, &sp_min_p, subpix);
 
-    for ss_y in ss_min_y..=ss_max_y {
+    for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
-        for ss_x in ss_min_x..=ss_max_x {
+        for ss_x in ss_min.x..=ss_max.x {
             if stepper.inside_tri_pos_area() {
                 raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
             }
@@ -77,9 +71,9 @@ pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
 }
 
 #[inline(always)]
-pub fn is_top_left(a: &[i64; 2], b: &[i64; 2]) -> bool {
-    let dy = b[1] - a[1];
-    (dy > 0) || (dy == 0 && (b[0] - a[0]) < 0)
+pub fn is_top_left(a: &I64Vec2, b: &I64Vec2) -> bool {
+    let dy = b.y - a.y;
+    (dy > 0) || (dy == 0 && (b.x - a.x) < 0)
 }
 
 pub struct SingleStepper {
@@ -96,10 +90,10 @@ pub struct SingleStepper {
 
 impl SingleStepper {
     pub fn new(
-        sp0: &[i64; 2],
-        sp1: &[i64; 2],
-        sp2: &[i64; 2],
-        sp_min_p: &[i64; 2],
+        sp0: &I64Vec2,
+        sp1: &I64Vec2,
+        sp2: &I64Vec2,
+        sp_min_p: &I64Vec2,
         subpix: i64,
     ) -> Self {
         SingleStepper {
@@ -126,16 +120,16 @@ impl SingleStepper {
 
     #[inline(always)]
     pub fn row_step(&mut self) {
-        self.e12.row += self.e12.step_y;
-        self.e20.row += self.e20.step_y;
-        self.e01.row += self.e01.step_y;
+        self.e12.row += self.e12.step.y;
+        self.e20.row += self.e20.step.y;
+        self.e01.row += self.e01.step.y;
     }
 
     #[inline(always)]
     pub fn col_step(&mut self) {
-        self.w0 += self.e12.step_x;
-        self.w1 += self.e20.step_x;
-        self.w2 += self.e01.step_x;
+        self.w0 += self.e12.step.x;
+        self.w1 += self.e20.step.x;
+        self.w2 += self.e01.step.x;
     }
 
     #[inline(always)]
@@ -147,34 +141,27 @@ impl SingleStepper {
 }
 
 pub struct SingleStep {
-    pub step_x: i64,
-    pub step_y: i64,
+    pub step: I64Vec2,
     pub row: i64,
 }
 
 impl SingleStep {
     #[inline(always)]
-    pub fn new(sp0: &[i64; 2], sp1: &[i64; 2], sp_min_p: &[i64; 2], subpix: i64) -> Self {
-        let a = sp0[1] - sp1[1];
-        let b = sp1[0] - sp0[0];
-        let c = (sp0[0]) * (sp1[1]) - (sp0[1]) * (sp1[0]);
+    pub fn new(sp0: &I64Vec2, sp1: &I64Vec2, sp_min_p: &I64Vec2, subpix: i64) -> Self {
+        let a = sp0.y - sp1.y;
+        let b = sp1.x - sp0.x;
+        let c = (sp0.x) * (sp1.y) - (sp0.y) * (sp1.x);
 
         Self {
-            step_x: a * subpix,
-            step_y: b * subpix,
-            row: a * sp_min_p[0] + b * sp_min_p[1] + c,
+            step: i64vec2(a * subpix, b * subpix),
+            row: a * sp_min_p.x + b * sp_min_p.y + c,
         }
     }
 }
 
 #[inline(always)]
-pub fn orient2d(a: &[i64; 2], b: &[i64; 2], c: &[i64; 2]) -> i64 {
-    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-}
-
-#[inline(always)]
-pub fn vec2_to_ivec2(v: egui::Vec2) -> [i64; 2] {
-    [v.x as i64, v.y as i64]
+pub fn orient2d(a: &I64Vec2, b: &I64Vec2, c: &I64Vec2) -> i64 {
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
 
 #[inline(always)]

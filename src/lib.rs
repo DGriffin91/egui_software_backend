@@ -10,6 +10,7 @@ use crate::{
 
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
+pub(crate) mod i64vec2;
 pub(crate) mod raster;
 pub(crate) mod render;
 #[cfg(feature = "test_render")]
