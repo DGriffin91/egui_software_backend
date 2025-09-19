@@ -2,22 +2,41 @@ use egui::Vec2;
 
 use crate::i64vec2::{I64Vec2, i64vec2};
 
-// Based on https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/
-// Particularly:
-// https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
-// https://fgiesen.wordpress.com/2013/02/10/optimizing-the-basic-rasterizer/
-// https://fgiesen.wordpress.com/2013/02/11/depth-buffers-done-quick-part/
-// https://fgiesen.wordpress.com/2013/02/16/depth-buffers-done-quick-part-2/
+// https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/
+// https://jtsorlinis.github.io/rendering-tutorial/
+// https://www.cs.cornell.edu/courses/cs4620/2011fa/lectures/16rasterizationWeb.pdf
 
-#[inline(always)]
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
-pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
+pub fn raster_tri_with_bary<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
     ss_tri: [Vec2; 3],
     // ss_x, ss_y, w0, w1, sp_inv_area
     mut raster: impl FnMut(i64, i64, i64, i64, f32),
 ) {
+    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
+        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
+    else {
+        return;
+    };
+
+    for ss_y in ss_min.y..=ss_max.y {
+        stepper.row_start();
+        for ss_x in ss_min.x..=ss_max.x {
+            if stepper.inside_tri_pos_area() {
+                raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
+            }
+            stepper.col_step();
+        }
+        stepper.row_step();
+    }
+}
+
+/// returns: ss_min, ss_max, sp_inv_area, stepper
+fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
+    ss_bounds: [i32; 4],
+    ss_tri: [Vec2; 3],
+) -> Option<(I64Vec2, I64Vec2, f32, SingleStepper)> {
     let subpix_bits = SUBPIX_BITS as u32;
     let subpix: i64 = 1 << subpix_bits;
     let subpix_half: i64 = subpix >> 1;
@@ -26,14 +45,14 @@ pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
     let ss_min_bound = i64vec2(ss_bounds[0] as i64, ss_bounds[1] as i64);
     let ss_max_bound = i64vec2(ss_bounds[2] as i64, ss_bounds[3] as i64);
 
-    // sp for subpixel space
     let sp0 = I64Vec2::from_vec2(ss_tri[0] * fsubpix);
     let sp1 = I64Vec2::from_vec2(ss_tri[1] * fsubpix);
     let sp2 = I64Vec2::from_vec2(ss_tri[2] * fsubpix);
 
     let sp_area = orient2d(&sp0, &sp1, &sp2);
+
     if sp_area <= 0 {
-        return;
+        return None;
     }
 
     let sp_min = sp0.min(sp1).min(sp2);
@@ -46,28 +65,18 @@ pub fn raster_tri_no_depth_backface_cull<const SUBPIX_BITS: i32>(
         .max(ss_min_bound)
         .min(ss_max_bound - 1);
 
-    // The center of the minimum point in sub pixel space
     let sp_min_p = ss_min * subpix + subpix_half;
-
     let ss_size = ss_max - ss_min;
+
     if ss_size.x <= 0 || ss_size.y <= 0 {
-        return;
+        return None;
     }
 
     let sp_inv_area = 1.0 / (sp_area as f32);
 
-    let mut stepper = SingleStepper::new(&sp0, &sp1, &sp2, &sp_min_p, subpix);
+    let stepper = SingleStepper::new(&sp0, &sp1, &sp2, &sp_min_p, subpix);
 
-    for ss_y in ss_min.y..=ss_max.y {
-        stepper.row_start();
-        for ss_x in ss_min.x..=ss_max.x {
-            if stepper.inside_tri_pos_area() {
-                raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
-            }
-            stepper.col_step();
-        }
-        stepper.row_step();
-    }
+    Some((ss_min, ss_max, sp_inv_area, stepper))
 }
 
 #[inline(always)]
