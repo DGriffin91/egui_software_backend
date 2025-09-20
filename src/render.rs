@@ -214,39 +214,33 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 );
                 i += 6; // Skip both tris
                 continue;
-            } else {
-                if requires_alpha_blending {
-                    if is_x86_feature_detected!("sse4.1") {
-                        raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
-                            let row_start = y as usize * buffer.width;
-                            let start = row_start + start as usize;
-                            let end = row_start + end as usize;
-                            // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                            unsafe {
-                                egui_blend_u8_slice_one_src_sse41(
-                                    const_tri_color_u8x4,
-                                    cast_slice_mut(&mut buffer.data[start..end]),
-                                )
-                            }
-                        });
-                    } else {
-                        raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
-                            let row_start = y as usize * buffer.width;
-                            let start = row_start + start as usize;
-                            let end = row_start + end as usize;
-                            for pixel in &mut buffer.data[start..end] {
-                                *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
-                            }
-                        });
-                    }
+            } else if requires_alpha_blending {
+                if is_x86_feature_detected!("sse4.1") {
+                    raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
+                        let row_start = y as usize * buffer.width;
+                        let start = row_start + start as usize;
+                        let end = row_start + end as usize;
+                        let dst = cast_slice_mut(&mut buffer.data[start..end]);
+                        // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                        unsafe { egui_blend_u8_slice_one_src_sse41(const_tri_color_u8x4, dst) }
+                    });
                 } else {
                     raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
                         let row_start = y as usize * buffer.width;
                         let start = row_start + start as usize;
                         let end = row_start + end as usize;
-                        buffer.data[start..end].fill(const_tri_color_u8x4)
+                        for pixel in &mut buffer.data[start..end] {
+                            *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                        }
                     });
                 }
+            } else {
+                raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
+                    let row_start = y as usize * buffer.width;
+                    let start = row_start + start as usize;
+                    let end = row_start + end as usize;
+                    buffer.data[start..end].fill(const_tri_color_u8x4)
+                });
             }
         } else if uvs_match {
             // if uvs match but colors don't match
