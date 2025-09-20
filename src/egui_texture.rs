@@ -125,11 +125,10 @@ pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
 
     let alpha = src[3] as u64;
     let alpha_compl = 0xFF ^ alpha;
-    let new = as_color16(u32::from_le_bytes(src));
-    let orig = as_color16(u32::from_le_bytes(dst));
-    let src_alpha = 0xFF;
+    let src = as_color16(u32::from_le_bytes(src));
+    let dst = as_color16(u32::from_le_bytes(dst));
 
-    let res16 = new * src_alpha + orig * alpha_compl + 0x0080008000800080;
+    let res16 = src * 0xFF + dst * alpha_compl + 0x0080008000800080;
     let res8 = res16 + ((res16 >> 8) & 0x00FF00FF00FF00FF);
 
     // transform the result back to 32 bytes
@@ -137,6 +136,62 @@ pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let res = (res | (res >> 8)) & 0x0000FFFF0000FFFF;
     let res = res | (res >> 16);
     u32::to_le_bytes((res & 0x00000000FFFFFFFFF) as u32)
+}
+
+// https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
+#[target_feature(enable = "sse4.1")]
+pub unsafe fn egui_blend_u8_once_src_sse41(src: [u8; 4], dst: &mut [[u8; 4]]) {
+    unsafe {
+        use std::arch::x86_64 as intr;
+
+        let n = dst.len();
+        if n == 0 {
+            return;
+        }
+
+        let src32 = u32::from_le_bytes(src);
+        let src64 = (src32 as u64) | ((src32 as u64) << 32);
+
+        let alpha = src[3] as i32;
+        let alpha_compl = 0xFF ^ alpha;
+
+        let ones = intr::_mm_set1_epi16(0x00FF);
+        let e1 = intr::_mm_set1_epi16(0x0080);
+        let e2 = intr::_mm_set1_epi16(0x0101);
+
+        let src_simd = intr::_mm_cvtsi64_si128(src64 as i64);
+        let src_simd = intr::_mm_cvtepu8_epi16(src_simd);
+
+        // (255 - a) in all u16 lanes
+        let simd_alpha_compl = intr::_mm_set1_epi16(alpha_compl as i16);
+
+        let mut i = 0;
+        while i + 1 < n {
+            let dst = dst.as_mut_ptr().add(i).cast::<u64>();
+            // Load two dst pixels
+            let d64 = core::ptr::read_unaligned(dst);
+            let d128 = intr::_mm_cvtsi64_si128(d64 as i64);
+            let dst16 = intr::_mm_cvtepu8_epi16(d128);
+
+            // src * 0xFF + dst * alpha_compl + 0x0080008000800080
+            let src_term = intr::_mm_mullo_epi16(src_simd, ones);
+            let dst_term = intr::_mm_mullo_epi16(dst16, simd_alpha_compl);
+            let res16 = intr::_mm_add_epi16(intr::_mm_add_epi16(src_term, dst_term), e1);
+
+            // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation.
+            // (can you see why?)
+            let res16 = intr::_mm_mulhi_epu16(res16, e2);
+            let final_i = intr::_mm_packus_epi16(res16, res16); // RGBA for two pixels
+
+            let lo64 = intr::_mm_cvtsi128_si64(final_i) as u64;
+            core::ptr::write_unaligned(dst, lo64);
+            i += 2;
+        }
+
+        if i < n {
+            dst[i] = egui_blend_u8(src, dst[i]);
+        }
+    }
 }
 
 #[inline(always)]

@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 
+use bytemuck::cast_slice_mut;
 use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
-    egui_texture::{egui_blend, egui_blend_u8, u8x4_to_vec4, unorm_mult4x4, vec4_to_u8x4_no_clamp},
+    egui_texture::{
+        egui_blend, egui_blend_u8, egui_blend_u8_once_src_sse41, u8x4_to_vec4, unorm_mult4x4,
+        vec4_to_u8x4_no_clamp,
+    },
     raster_bary::{bary, raster_tri_with_bary, raster_tri_with_colors, raster_tri_with_uv},
     raster_rect::{draw_solid_rect, draw_textured_rect},
     raster_span::raster_tri_span,
@@ -212,14 +216,29 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 continue;
             } else {
                 if requires_alpha_blending {
-                    raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
-                        let row_start = y as usize * buffer.width;
-                        let start = row_start + start as usize;
-                        let end = row_start + end as usize;
-                        for pixel in &mut buffer.data[start..end] {
-                            *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
-                        }
-                    });
+                    if is_x86_feature_detected!("sse4.1") {
+                        raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
+                            let row_start = y as usize * buffer.width;
+                            let start = row_start + start as usize;
+                            let end = row_start + end as usize;
+                            // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                            unsafe {
+                                egui_blend_u8_once_src_sse41(
+                                    const_tri_color_u8x4,
+                                    cast_slice_mut(&mut buffer.data[start..end]),
+                                )
+                            }
+                        });
+                    } else {
+                        raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
+                            let row_start = y as usize * buffer.width;
+                            let start = row_start + start as usize;
+                            let end = row_start + end as usize;
+                            for pixel in &mut buffer.data[start..end] {
+                                *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                            }
+                        });
+                    }
                 } else {
                     raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
                         let row_start = y as usize * buffer.width;
