@@ -12,7 +12,8 @@ pub(crate) mod egui_texture;
 pub(crate) mod hash;
 pub(crate) mod i64vec2;
 pub(crate) mod raster_bary;
-pub(crate) mod raster_scan;
+pub(crate) mod raster_rect;
+pub(crate) mod raster_span;
 pub(crate) mod render;
 #[cfg(feature = "test_render")]
 pub mod test_render;
