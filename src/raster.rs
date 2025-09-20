@@ -1,6 +1,11 @@
+use std::ops::{Add, AddAssign, Mul, Sub};
+
 use egui::Vec2;
 
-use crate::i64vec2::{I64Vec2, i64vec2};
+use crate::{
+    i64vec2::{I64Vec2, i64vec2},
+    vec4::Vec4,
+};
 
 // https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/
 // https://jtsorlinis.github.io/rendering-tutorial/
@@ -12,7 +17,7 @@ pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
     ss_tri: &[Vec2; 3],
     uv: &[Vec2; 3],
-    // ss_x, ss_y, w0, w1, sp_inv_area
+    // ss_x, ss_y, uv
     mut raster: impl FnMut(i64, i64, Vec2),
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
@@ -21,7 +26,7 @@ pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
         return;
     };
 
-    let mut uv_stepper = Vec2AttributeStepper::new(uv, sp_inv_area, &stepper);
+    let mut uv_stepper = AttributeStepper::<Vec2>::new(uv, sp_inv_area, &stepper);
 
     for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
@@ -38,60 +43,35 @@ pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
     }
 }
 
-struct Vec2AttributeStepper {
-    step_x: Vec2,
-    step_y: Vec2,
-    row: Vec2,
-    attr: Vec2,
-}
+/// ss for screen space (unit is screen pixel)
+/// sp for subpixel space (unit fraction of screen pixel)
+pub fn raster_tri_with_colors<const SUBPIX_BITS: i32>(
+    ss_bounds: [i32; 4],
+    ss_tri: &[Vec2; 3],
+    colors: &[Vec4; 3],
+    // ss_x, ss_y, color
+    mut raster: impl FnMut(i64, i64, Vec4),
+) {
+    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
+        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
+    else {
+        return;
+    };
 
-impl Vec2AttributeStepper {
-    fn new(attr: &[Vec2; 3], sp_inv_area: f32, stepper: &SingleStepper) -> Self {
-        // Get attribute value of top left
-        let w0 = stepper.e12.row;
-        let w1 = stepper.e20.row;
-        let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
-        let attr_tl = b0 * attr[0] + b1 * attr[1] + b2 * attr[2];
+    let mut uv_stepper = AttributeStepper::<Vec4>::new(colors, sp_inv_area, &stepper);
 
-        // Get attribute value of one x step right from top left
-        let w0sx = w0 + stepper.e12.step.x;
-        let w1sx = w1 + stepper.e20.step.x;
-        let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
-        let attr_1x = b0 * attr[0] + b1 * attr[1] + b2 * attr[2];
-
-        // Get attribute value of one y step down from top left
-        let w0sy = w0 + stepper.e12.step.y;
-        let w1sy = w1 + stepper.e20.step.y;
-        let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
-        let attr_1y = b0 * attr[0] + b1 * attr[1] + b2 * attr[2];
-
-        // Compute deltas
-        let step_x = attr_1x - attr_tl;
-        let step_y = attr_1y - attr_tl;
-
-        let row = attr_tl;
-
-        Vec2AttributeStepper {
-            step_x,
-            step_y,
-            row,
-            attr: attr_tl,
+    for ss_y in ss_min.y..=ss_max.y {
+        stepper.row_start();
+        uv_stepper.row_start();
+        for ss_x in ss_min.x..=ss_max.x {
+            if stepper.inside_tri_pos_area() {
+                raster(ss_x, ss_y, uv_stepper.attr);
+            }
+            stepper.col_step();
+            uv_stepper.col_step();
         }
-    }
-
-    #[inline(always)]
-    pub fn row_step(&mut self) {
-        self.row += self.step_y;
-    }
-
-    #[inline(always)]
-    pub fn col_step(&mut self) {
-        self.attr += self.step_x;
-    }
-
-    #[inline(always)]
-    pub fn row_start(&mut self) {
-        self.attr = self.row;
+        stepper.row_step();
+        uv_stepper.row_step();
     }
 }
 
@@ -114,6 +94,33 @@ pub fn raster_tri_with_bary<const SUBPIX_BITS: i32>(
         for ss_x in ss_min.x..=ss_max.x {
             if stepper.inside_tri_pos_area() {
                 raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
+            }
+            stepper.col_step();
+        }
+        stepper.row_step();
+    }
+}
+
+/// ss for screen space (unit is screen pixel)
+/// sp for subpixel space (unit fraction of screen pixel)
+pub fn raster_tri<const SUBPIX_BITS: i32>(
+    ss_bounds: [i32; 4],
+    ss_tri: &[Vec2; 3],
+    // ss_x, ss_y
+    mut raster: impl FnMut(i64, i64),
+) {
+    // TODO is scanline faster when barycentrics are not needed?
+    let Some((ss_min, ss_max, _sp_inv_area, mut stepper)) =
+        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
+    else {
+        return;
+    };
+
+    for ss_y in ss_min.y..=ss_max.y {
+        stepper.row_start();
+        for ss_x in ss_min.x..=ss_max.x {
+            if stepper.inside_tri_pos_area() {
+                raster(ss_x, ss_y);
             }
             stepper.col_step();
         }
@@ -268,4 +275,67 @@ pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
     let b1 = (w1 as f32) * inv_area;
     let b2 = 1.0 - b0 - b1;
     (b0, b1, b2)
+}
+
+struct AttributeStepper<T>
+where
+    T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
+{
+    step_x: T,
+    step_y: T,
+    row: T,
+    attr: T,
+}
+
+impl<T> AttributeStepper<T>
+where
+    T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
+{
+    fn new(attr: &[T; 3], sp_inv_area: f32, stepper: &SingleStepper) -> Self {
+        // Get attribute value of top left
+        let w0 = stepper.e12.row;
+        let w1 = stepper.e20.row;
+        let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
+        let attr_tl = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
+
+        // Get attribute value of one x step right from top left
+        let w0sx = w0 + stepper.e12.step.x;
+        let w1sx = w1 + stepper.e20.step.x;
+        let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
+        let attr_1x = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
+
+        // Get attribute value of one y step down from top left
+        let w0sy = w0 + stepper.e12.step.y;
+        let w1sy = w1 + stepper.e20.step.y;
+        let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
+        let attr_1y = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
+
+        // Compute deltas
+        let step_x = attr_1x - attr_tl;
+        let step_y = attr_1y - attr_tl;
+
+        let row = attr_tl;
+
+        AttributeStepper {
+            step_x,
+            step_y,
+            row,
+            attr: attr_tl,
+        }
+    }
+
+    #[inline(always)]
+    pub fn row_step(&mut self) {
+        self.row += self.step_y;
+    }
+
+    #[inline(always)]
+    pub fn col_step(&mut self) {
+        self.attr += self.step_x;
+    }
+
+    #[inline(always)]
+    pub fn row_start(&mut self) {
+        self.attr = self.row;
+    }
 }

@@ -5,7 +5,7 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 use crate::{
     BufferMutRef, EguiTexture,
     egui_texture::{egui_blend, egui_blend_u8, u8x4_to_vec4, unorm_mult4x4, vec4_to_u8x4_no_clamp},
-    raster::{bary, raster_tri_with_bary, raster_tri_with_uv},
+    raster::{bary, raster_tri, raster_tri_with_bary, raster_tri_with_colors, raster_tri_with_uv},
     vec4::Vec4,
 };
 
@@ -86,9 +86,11 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         let color1_u8x4 = tri[1].color.to_array();
         let color2_u8x4 = tri[2].color.to_array();
 
-        let color0 = u8x4_to_vec4(&color0_u8x4);
-        let color1 = u8x4_to_vec4(&color1_u8x4);
-        let color2 = u8x4_to_vec4(&color2_u8x4);
+        let colors = [
+            u8x4_to_vec4(&color0_u8x4),
+            u8x4_to_vec4(&color1_u8x4),
+            u8x4_to_vec4(&color2_u8x4),
+        ];
 
         let scr_tri = [
             tri[0].pos.to_vec2(),
@@ -107,7 +109,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 let (b0, b1, b2) = bary(w0, w1, inv_area);
                 let uv = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
                 let tex_color = u8x4_to_vec4(&texture.sample_bilinear(uv));
-                let vert_color = b0 * color0 + b1 * color1 + b2 * color2;
+                let vert_color = b0 * colors[0] + b1 * colors[1] + b2 * colors[2];
                 let pixel = buffer.get_mut_clamped(x as usize, y as usize);
                 let dst = u8x4_to_vec4(pixel);
                 let src = vert_color * tex_color;
@@ -127,7 +129,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         }
 
         if colors_match {
-            const_vert_color = color0;
+            const_vert_color = colors[0];
             const_vert_color_u8x4 = vec4_to_u8x4_no_clamp(&const_vert_color);
         }
 
@@ -207,23 +209,25 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 i += 6; // Skip both tris
                 continue;
             } else {
-                draw_solid_tri::<SUBPIX_BITS>(
-                    buffer,
-                    const_tri_color_u8x4,
-                    &clip_bounds,
-                    &scr_tri,
-                    requires_alpha_blending,
-                );
+                if requires_alpha_blending {
+                    raster_tri::<SUBPIX_BITS>(clip_bounds, &scr_tri, |x, y| {
+                        let pixel = buffer.get_mut_clamped(x as usize, y as usize);
+                        *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                    });
+                } else {
+                    raster_tri::<SUBPIX_BITS>(clip_bounds, &scr_tri, |x, y| {
+                        *buffer.get_mut_clamped(x as usize, y as usize) = const_tri_color_u8x4;
+                    });
+                }
             }
         } else if uvs_match {
             // if uvs match but colors don't match
             if requires_alpha_blending {
-                raster_tri_with_bary::<SUBPIX_BITS>(
+                raster_tri_with_colors::<SUBPIX_BITS>(
                     clip_bounds,
                     &scr_tri,
-                    |x, y, w0, w1, inv_area| {
-                        let (b0, b1, b2) = bary(w0, w1, inv_area);
-                        let vert_color = b0 * color0 + b1 * color1 + b2 * color2;
+                    &colors,
+                    |x, y, vert_color| {
                         let pixel = buffer.get_mut_clamped(x as usize, y as usize);
                         let dst = u8x4_to_vec4(pixel);
                         let src = vert_color * const_tex_color;
@@ -231,12 +235,11 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                     },
                 );
             } else {
-                raster_tri_with_bary::<SUBPIX_BITS>(
+                raster_tri_with_colors::<SUBPIX_BITS>(
                     clip_bounds,
                     &scr_tri,
-                    |x, y, w0, w1, inv_area| {
-                        let (b0, b1, b2) = bary(w0, w1, inv_area);
-                        let vert_color = b0 * color0 + b1 * color1 + b2 * color2;
+                    &colors,
+                    |x, y, vert_color| {
                         let pixel = buffer.get_mut_clamped(x as usize, y as usize);
                         let src = vert_color * const_tex_color;
                         *pixel = vec4_to_u8x4_no_clamp(&src);
@@ -273,7 +276,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 let (b0, b1, b2) = bary(w0, w1, inv_area);
                 let uv = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
                 let tex_color = u8x4_to_vec4(&texture.sample_bilinear(uv));
-                let vert_color = b0 * color0 + b1 * color1 + b2 * color2;
+                let vert_color = b0 * colors[0] + b1 * colors[1] + b2 * colors[2];
                 let pixel = buffer.get_mut_clamped(x as usize, y as usize);
                 let dst = u8x4_to_vec4(pixel);
                 let src = vert_color * tex_color;
@@ -377,27 +380,6 @@ fn draw_solid_rect(
             let buf_y = y * buffer.width;
             buffer.data[min_x + buf_y..max_x + buf_y].fill(const_tri_color_u8x4);
         }
-    }
-}
-
-fn draw_solid_tri<const SUBPIX_BITS: i32>(
-    buffer: &mut BufferMutRef,
-    const_tri_color_u8x4: [u8; 4],
-    clip_bounds: &[i32; 4],
-    scr_tri: &[Vec2; 3],
-    requires_alpha_blending: bool,
-) {
-    // TODO is scanline faster when barycentrics are not needed?
-    if requires_alpha_blending {
-        raster_tri_with_bary::<SUBPIX_BITS>(*clip_bounds, scr_tri, |x, y, _w0, _w1, _inv_area| {
-            let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-            let src = const_tri_color_u8x4;
-            *pixel = egui_blend_u8(src, *pixel);
-        });
-    } else {
-        raster_tri_with_bary::<SUBPIX_BITS>(*clip_bounds, scr_tri, |x, y, _w0, _w1, _inv_area| {
-            *buffer.get_mut_clamped(x as usize, y as usize) = const_tri_color_u8x4;
-        });
     }
 }
 
