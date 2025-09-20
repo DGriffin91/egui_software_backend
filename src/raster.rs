@@ -26,7 +26,7 @@ pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
         return;
     };
 
-    let mut uv_stepper = AttributeStepper::<Vec2>::new(uv, sp_inv_area, &stepper);
+    let mut uv_stepper = stepper.attr(uv, sp_inv_area);
 
     for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
@@ -58,7 +58,7 @@ pub fn raster_tri_with_colors<const SUBPIX_BITS: i32>(
         return;
     };
 
-    let mut uv_stepper = AttributeStepper::<Vec4>::new(colors, sp_inv_area, &stepper);
+    let mut uv_stepper = stepper.attr(colors, sp_inv_area);
 
     for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
@@ -243,6 +243,45 @@ impl SingleStepper {
         self.w1 = self.e20.row;
         self.w2 = self.e01.row;
     }
+
+    /// Generate stepper for float attribute (like vertex UVs or vertex colors)
+    /// Depends on SingleStepper's initial state. Make sure to run before using SingleStepper::row_step() or
+    /// SingleStepper::col_step()
+    fn attr<T>(&self, attr: &[T; 3], sp_inv_area: f32) -> AttributeStepper<T>
+    where
+        T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
+    {
+        // Get attribute value of top left
+        let w0 = self.e12.row;
+        let w1 = self.e20.row;
+        let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
+        let attr_tl = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
+
+        // Get attribute value of one x step right from top left
+        let w0sx = w0 + self.e12.step.x;
+        let w1sx = w1 + self.e20.step.x;
+        let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
+        let attr_1x = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
+
+        // Get attribute value of one y step down from top left
+        let w0sy = w0 + self.e12.step.y;
+        let w1sy = w1 + self.e20.step.y;
+        let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
+        let attr_1y = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
+
+        // Compute deltas
+        let step_x = attr_1x - attr_tl;
+        let step_y = attr_1y - attr_tl;
+
+        let row = attr_tl;
+
+        AttributeStepper {
+            step_x,
+            step_y,
+            row,
+            attr: attr_tl,
+        }
+    }
 }
 
 pub struct SingleStep {
@@ -291,39 +330,6 @@ impl<T> AttributeStepper<T>
 where
     T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
 {
-    fn new(attr: &[T; 3], sp_inv_area: f32, stepper: &SingleStepper) -> Self {
-        // Get attribute value of top left
-        let w0 = stepper.e12.row;
-        let w1 = stepper.e20.row;
-        let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
-        let attr_tl = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
-
-        // Get attribute value of one x step right from top left
-        let w0sx = w0 + stepper.e12.step.x;
-        let w1sx = w1 + stepper.e20.step.x;
-        let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
-        let attr_1x = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
-
-        // Get attribute value of one y step down from top left
-        let w0sy = w0 + stepper.e12.step.y;
-        let w1sy = w1 + stepper.e20.step.y;
-        let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
-        let attr_1y = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
-
-        // Compute deltas
-        let step_x = attr_1x - attr_tl;
-        let step_y = attr_1y - attr_tl;
-
-        let row = attr_tl;
-
-        AttributeStepper {
-            step_x,
-            step_y,
-            row,
-            attr: attr_tl,
-        }
-    }
-
     #[inline(always)]
     pub fn row_step(&mut self) {
         self.row += self.step_y;
