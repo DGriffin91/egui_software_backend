@@ -395,7 +395,6 @@ impl EguiSoftwareRender {
     }
 
     fn update_canvas_from_cached(&mut self) {
-        // TODO perf: see if blending could be faster than with egui_blend_u8 & uvec_to_u8x4.
         let mut sorted_prim_cache = self.cached_primitives.values().collect::<Vec<_>>();
         sorted_prim_cache.sort_unstable_by_key(|prim| prim.z_order);
 
@@ -434,8 +433,8 @@ impl EguiSoftwareRender {
                 let mut max_x = min_x + prim.width;
                 let mut max_y = min_y + prim.height;
 
-                min_x = min_x.max(tile_x_start);
-                min_y = min_y.max(tile_y_start);
+                min_x = min_x.max(tile_x_start).min(self.canvas.width);
+                min_y = min_y.max(tile_y_start).min(self.canvas.height);
                 max_x = max_x.min(tile_x_end).min(self.canvas.width);
                 max_y = max_y.min(tile_y_end).min(self.canvas.height);
 
@@ -444,12 +443,23 @@ impl EguiSoftwareRender {
                 if max_x <= min_x || max_y <= min_y {
                     continue;
                 }
+                let prim_x_min = (min_x - prim.min_x).min(prim_buf.width);
+                let prim_x_max = (max_x - prim.min_x).min(prim_buf.width);
                 for y in min_y..max_y {
-                    for x in min_x..max_x {
-                        let canvas_x = x.min(self.canvas.width_extent);
-                        let canvas_y = y.min(self.canvas.height_extent);
-                        let pixel = &mut self.canvas.data[canvas_x + canvas_y * self.canvas.width];
-                        let src = prim_buf.get_ref(x - prim.min_x, y - prim.min_y);
+                    let canvas_row_start = y.min(self.canvas.height) * self.canvas.width;
+                    let canvas_start = canvas_row_start + min_x;
+                    let canvas_end = canvas_row_start + max_x;
+
+                    let prim_y = (y - prim.min_y).min(prim_buf.height);
+                    let prim_row_start = prim_y * prim_buf.width;
+                    let prim_start = prim_row_start + prim_x_min;
+                    let prim_end = prim_row_start + prim_x_max;
+
+                    let canvas_slice = &mut self.canvas.data[canvas_start..canvas_end];
+                    let prim_slice = &prim_buf.data[prim_start..prim_end];
+
+                    debug_assert_eq!(canvas_slice.len(), prim_slice.len());
+                    for (pixel, src) in canvas_slice.iter_mut().zip(prim_slice.iter()) {
                         *pixel = egui_blend_u8(*src, *pixel);
                         //pixel[0] = pixel[0].saturating_add(64);
                         //pixel[3] = pixel[3].saturating_add(64);
