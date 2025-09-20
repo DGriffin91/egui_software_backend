@@ -1,9 +1,9 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, ops::Range};
 
 use egui::{Color32, Pos2, Vec2, vec2};
 
 use crate::{
-    egui_texture::{EguiTexture, egui_blend_u8, swizzle_rgba_bgra},
+    egui_texture::{EguiTexture, egui_blend_u8, egui_blend_u8_slice_sse41, swizzle_rgba_bgra},
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
 };
@@ -445,7 +445,8 @@ impl EguiSoftwareRender {
                 }
                 let prim_x_min = (min_x - prim.min_x).min(prim_buf.width);
                 let prim_x_max = (max_x - prim.min_x).min(prim_buf.width);
-                for y in min_y..max_y {
+
+                let get_ranges = |y: usize| -> (Range<usize>, Range<usize>) {
                     let canvas_row_start = y.min(self.canvas.height) * self.canvas.width;
                     let canvas_start = canvas_row_start + min_x;
                     let canvas_end = canvas_row_start + max_x;
@@ -455,14 +456,25 @@ impl EguiSoftwareRender {
                     let prim_start = prim_row_start + prim_x_min;
                     let prim_end = prim_row_start + prim_x_max;
 
-                    let canvas_slice = &mut self.canvas.data[canvas_start..canvas_end];
-                    let prim_slice = &prim_buf.data[prim_start..prim_end];
+                    (canvas_start..canvas_end, prim_start..prim_end)
+                };
 
-                    debug_assert_eq!(canvas_slice.len(), prim_slice.len());
-                    for (pixel, src) in canvas_slice.iter_mut().zip(prim_slice.iter()) {
-                        *pixel = egui_blend_u8(*src, *pixel);
-                        //pixel[0] = pixel[0].saturating_add(64);
-                        //pixel[3] = pixel[3].saturating_add(64);
+                if is_x86_feature_detected!("sse4.1") {
+                    for y in min_y..max_y {
+                        let (canvas_slice, prim_slice) = get_ranges(y);
+                        let src_row = &prim_buf.data[prim_slice];
+                        let dst_row = &mut self.canvas.data[canvas_slice];
+                        // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                        unsafe { egui_blend_u8_slice_sse41(src_row, dst_row) }
+                    }
+                } else {
+                    for y in min_y..max_y {
+                        let (canvas_slice, prim_slice) = get_ranges(y);
+                        let src_row = &prim_buf.data[prim_slice];
+                        let dst_row = &mut self.canvas.data[canvas_slice];
+                        for (pixel, src) in dst_row.iter_mut().zip(src_row) {
+                            *pixel = egui_blend_u8(*src, *pixel);
+                        }
                     }
                 }
             }
@@ -509,12 +521,22 @@ impl EguiSoftwareRender {
             let x_end = (x_start + TILE_SIZE).min(width);
             let y_end = (y_start + TILE_SIZE).min(height);
 
-            for y in y_start..y_end {
-                let row_start = y * width;
-                let src_row = &self.canvas.data[row_start + x_start..row_start + x_end];
-                let dst_row = &mut buffer.data[row_start + x_start..row_start + x_end];
-                for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                    *dst = egui_blend_u8(src, *dst);
+            if is_x86_feature_detected!("sse4.1") {
+                for y in y_start..y_end {
+                    let row_start = y * width;
+                    let src_row = &self.canvas.data[row_start + x_start..row_start + x_end];
+                    let dst_row = &mut buffer.data[row_start + x_start..row_start + x_end];
+                    // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                    unsafe { egui_blend_u8_slice_sse41(src_row, dst_row) }
+                }
+            } else {
+                for y in y_start..y_end {
+                    let row_start = y * width;
+                    let src_row = &self.canvas.data[row_start + x_start..row_start + x_end];
+                    let dst_row = &mut buffer.data[row_start + x_start..row_start + x_end];
+                    for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
+                        *dst = egui_blend_u8(src, *dst);
+                    }
                 }
             }
         }
