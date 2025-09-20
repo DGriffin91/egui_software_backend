@@ -8,9 +8,63 @@ use crate::i64vec2::{I64Vec2, i64vec2};
 
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
+pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
+    ss_bounds: [i32; 4],
+    ss_tri: &[Vec2; 3],
+    uv: &[Vec2; 3],
+    // ss_x, ss_y, w0, w1, sp_inv_area
+    mut raster: impl FnMut(i64, i64, Vec2),
+) {
+    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
+        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
+    else {
+        return;
+    };
+
+    // Get UV of top left
+    let w0 = stepper.e12.row;
+    let w1 = stepper.e20.row;
+    let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
+    let uv_tl = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
+
+    // Get UV of one x step right from top left
+    let w0sx = w0 + stepper.e12.step.x;
+    let w1sx = w1 + stepper.e20.step.x;
+    let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
+    let uv_1x = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
+
+    // Get UV of one y step down from top left
+    let w0sy = w0 + stepper.e12.step.y;
+    let w1sy = w1 + stepper.e20.step.y;
+    let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
+    let uv_1y = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
+
+    // Compute deltas
+    let uv_step_x = uv_1x - uv_tl;
+    let uv_step_y = uv_1y - uv_tl;
+
+    let mut uv_row = uv_tl;
+
+    for ss_y in ss_min.y..=ss_max.y {
+        stepper.row_start();
+        let mut uv = uv_row;
+        for ss_x in ss_min.x..=ss_max.x {
+            if stepper.inside_tri_pos_area() {
+                raster(ss_x, ss_y, uv);
+            }
+            stepper.col_step();
+            uv += uv_step_x;
+        }
+        stepper.row_step();
+        uv_row += uv_step_y;
+    }
+}
+
+/// ss for screen space (unit is screen pixel)
+/// sp for subpixel space (unit fraction of screen pixel)
 pub fn raster_tri_with_bary<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
-    ss_tri: [Vec2; 3],
+    ss_tri: &[Vec2; 3],
     // ss_x, ss_y, w0, w1, sp_inv_area
     mut raster: impl FnMut(i64, i64, i64, i64, f32),
 ) {
@@ -35,7 +89,7 @@ pub fn raster_tri_with_bary<const SUBPIX_BITS: i32>(
 /// returns: ss_min, ss_max, sp_inv_area, stepper
 fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
-    ss_tri: [Vec2; 3],
+    ss_tri: &[Vec2; 3],
 ) -> Option<(I64Vec2, I64Vec2, f32, SingleStepper)> {
     let subpix_bits = SUBPIX_BITS as u32;
     let subpix: i64 = 1 << subpix_bits;
