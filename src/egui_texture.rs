@@ -269,19 +269,19 @@ pub fn swizzle_rgba_bgra(a: [u8; 4]) -> [u8; 4] {
 #[inline(always)]
 pub fn unorm_mult4x4(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
     [
-        unorm_mult(a[0] as u32, b[0] as u32).min(255) as u8,
-        unorm_mult(a[1] as u32, b[1] as u32).min(255) as u8,
-        unorm_mult(a[2] as u32, b[2] as u32).min(255) as u8,
-        unorm_mult(a[3] as u32, b[3] as u32).min(255) as u8,
+        unorm_mult(a[0] as u32, b[0] as u32) as u8,
+        unorm_mult(a[1] as u32, b[1] as u32) as u8,
+        unorm_mult(a[2] as u32, b[2] as u32) as u8,
+        unorm_mult(a[3] as u32, b[3] as u32) as u8,
     ]
 }
 
 #[inline(always)]
 // Jerry R. Van Aken - Alpha Blending with No Division Operations https://arxiv.org/pdf/2202.02864
 // Input should be 0..255, is multiplied as if it were 0..1f
-pub fn unorm_mult(mut a: u32, mut b: u32) -> u32 {
-    b |= b << 8;
+pub fn unorm_mult(mut a: u32, b: u32) -> u32 {
     a *= b;
-    a += 0x8080;
-    a >> 16
+    a += 0x80;
+    a += a >> 8;
+    a >> 8
 }
