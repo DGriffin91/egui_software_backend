@@ -103,6 +103,7 @@ pub fn raster_tri_with_bary<const SUBPIX_BITS: i32>(
 
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
+#[allow(unused)]
 pub fn raster_tri<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
     ss_tri: &[Vec2; 3],
@@ -129,7 +130,7 @@ pub fn raster_tri<const SUBPIX_BITS: i32>(
 }
 
 /// returns: ss_min, ss_max, sp_inv_area, stepper
-fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
+pub fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
     ss_tri: &[Vec2; 3],
 ) -> Option<(I64Vec2, I64Vec2, f32, SingleStepper)> {

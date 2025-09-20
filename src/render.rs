@@ -5,7 +5,8 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 use crate::{
     BufferMutRef, EguiTexture,
     egui_texture::{egui_blend, egui_blend_u8, u8x4_to_vec4, unorm_mult4x4, vec4_to_u8x4_no_clamp},
-    raster::{bary, raster_tri, raster_tri_with_bary, raster_tri_with_colors, raster_tri_with_uv},
+    raster_bary::{bary, raster_tri_with_bary, raster_tri_with_colors, raster_tri_with_uv},
+    raster_scan::raster_tri_span,
     vec4::Vec4,
 };
 
@@ -210,13 +211,20 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 continue;
             } else {
                 if requires_alpha_blending {
-                    raster_tri::<SUBPIX_BITS>(clip_bounds, &scr_tri, |x, y| {
-                        let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-                        *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                    raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
+                        let row_start = y as usize * buffer.width;
+                        let start = row_start + start as usize;
+                        let end = row_start + end as usize;
+                        for pixel in &mut buffer.data[start..end] {
+                            *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                        }
                     });
                 } else {
-                    raster_tri::<SUBPIX_BITS>(clip_bounds, &scr_tri, |x, y| {
-                        *buffer.get_mut_clamped(x as usize, y as usize) = const_tri_color_u8x4;
+                    raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
+                        let row_start = y as usize * buffer.width;
+                        let start = row_start + start as usize;
+                        let end = row_start + end as usize;
+                        buffer.data[start..end].fill(const_tri_color_u8x4)
                     });
                 }
             }
@@ -368,17 +376,19 @@ fn draw_solid_rect(
 
     if requires_alpha_blending {
         for y in min_y..max_y {
-            let buf_y = y * buffer.width;
-            for x in min_x..max_x {
-                let pixel = &mut buffer.data[x + buf_y];
-                let src = const_tri_color_u8x4;
-                *pixel = egui_blend_u8(src, *pixel);
+            let row_start = y * buffer.width;
+            let start = row_start + min_x;
+            let end = row_start + max_x;
+            for pixel in &mut buffer.data[start..end] {
+                *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
             }
         }
     } else {
         for y in min_y..max_y {
-            let buf_y = y * buffer.width;
-            buffer.data[min_x + buf_y..max_x + buf_y].fill(const_tri_color_u8x4);
+            let row_start = y * buffer.width;
+            let start = row_start + min_x;
+            let end = row_start + max_x;
+            buffer.data[start..end].fill(const_tri_color_u8x4);
         }
     }
 }
