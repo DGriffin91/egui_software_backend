@@ -21,42 +21,77 @@ pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
         return;
     };
 
-    // Get UV of top left
-    let w0 = stepper.e12.row;
-    let w1 = stepper.e20.row;
-    let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
-    let uv_tl = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
-
-    // Get UV of one x step right from top left
-    let w0sx = w0 + stepper.e12.step.x;
-    let w1sx = w1 + stepper.e20.step.x;
-    let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
-    let uv_1x = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
-
-    // Get UV of one y step down from top left
-    let w0sy = w0 + stepper.e12.step.y;
-    let w1sy = w1 + stepper.e20.step.y;
-    let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
-    let uv_1y = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
-
-    // Compute deltas
-    let uv_step_x = uv_1x - uv_tl;
-    let uv_step_y = uv_1y - uv_tl;
-
-    let mut uv_row = uv_tl;
+    let mut uv_stepper = Vec2AttributeStepper::new(uv, sp_inv_area, &stepper);
 
     for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
-        let mut uv = uv_row;
+        uv_stepper.row_start();
         for ss_x in ss_min.x..=ss_max.x {
             if stepper.inside_tri_pos_area() {
-                raster(ss_x, ss_y, uv);
+                raster(ss_x, ss_y, uv_stepper.attr);
             }
             stepper.col_step();
-            uv += uv_step_x;
+            uv_stepper.col_step();
         }
         stepper.row_step();
-        uv_row += uv_step_y;
+        uv_stepper.row_step();
+    }
+}
+
+struct Vec2AttributeStepper {
+    step_x: Vec2,
+    step_y: Vec2,
+    row: Vec2,
+    attr: Vec2,
+}
+
+impl Vec2AttributeStepper {
+    fn new(attr: &[Vec2; 3], sp_inv_area: f32, stepper: &SingleStepper) -> Self {
+        // Get attribute value of top left
+        let w0 = stepper.e12.row;
+        let w1 = stepper.e20.row;
+        let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
+        let attr_tl = b0 * attr[0] + b1 * attr[1] + b2 * attr[2];
+
+        // Get attribute value of one x step right from top left
+        let w0sx = w0 + stepper.e12.step.x;
+        let w1sx = w1 + stepper.e20.step.x;
+        let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
+        let attr_1x = b0 * attr[0] + b1 * attr[1] + b2 * attr[2];
+
+        // Get attribute value of one y step down from top left
+        let w0sy = w0 + stepper.e12.step.y;
+        let w1sy = w1 + stepper.e20.step.y;
+        let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
+        let attr_1y = b0 * attr[0] + b1 * attr[1] + b2 * attr[2];
+
+        // Compute deltas
+        let step_x = attr_1x - attr_tl;
+        let step_y = attr_1y - attr_tl;
+
+        let row = attr_tl;
+
+        Vec2AttributeStepper {
+            step_x,
+            step_y,
+            row,
+            attr: attr_tl,
+        }
+    }
+
+    #[inline(always)]
+    pub fn row_step(&mut self) {
+        self.row += self.step_y;
+    }
+
+    #[inline(always)]
+    pub fn col_step(&mut self) {
+        self.attr += self.step_x;
+    }
+
+    #[inline(always)]
+    pub fn row_start(&mut self) {
+        self.attr = self.row;
     }
 }
 

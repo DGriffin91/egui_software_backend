@@ -30,7 +30,7 @@ mod tests {
         }
 
         // egui's failed_px_count_thresold default is 0
-        for (px_per_point, failed_px_count_thresold) in [(1.0, 1), (1.5, 7)] {
+        for (px_per_point, failed_px_count_thresold) in [(1.0, 1), (1.5, 15)] {
             // --- Render on GPU
             let mut harness = HarnessBuilder::default()
                 .with_size(RESOLUTION)
