@@ -522,17 +522,15 @@ impl EguiSoftwareRender {
 
             if is_x86_feature_detected!("sse4.1") {
                 for y in y_start..y_end {
-                    let row_start = y * width;
-                    let src_row = &self.canvas.data[row_start + x_start..row_start + x_end];
-                    let dst_row = &mut buffer.data[row_start + x_start..row_start + x_end];
+                    let src_row = self.canvas.get_span(x_start, x_end, y);
+                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
                     // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
                     unsafe { egui_blend_u8_slice_sse41(src_row, dst_row) }
                 }
             } else {
                 for y in y_start..y_end {
-                    let row_start = y * width;
-                    let src_row = &self.canvas.data[row_start + x_start..row_start + x_end];
-                    let dst_row = &mut buffer.data[row_start + x_start..row_start + x_end];
+                    let src_row = self.canvas.get_span(x_start, x_end, y);
+                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
                     for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
                         *dst = egui_blend_u8_fast(src, *dst);
                     }
@@ -639,6 +637,20 @@ impl Canvas {
         } else {
             false
         }
+    }
+
+    #[inline(always)]
+    pub fn get_range(&self, start: usize, end: usize, y: usize) -> Range<usize> {
+        let row_start = y * self.width;
+        let start = row_start + start;
+        let end = row_start + end;
+        start..end
+    }
+
+    #[inline(always)]
+    pub fn get_span(&self, start: usize, end: usize, y: usize) -> &[[u8; 4]] {
+        let range = self.get_range(start, end, y);
+        &self.data[range]
     }
 }
 

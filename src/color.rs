@@ -50,7 +50,7 @@ pub fn egui_blend_u8(src: [u8; 4], mut dst: [u8; 4]) -> [u8; 4] {
         let res = (res8 >> 8) & 0x00FF00FF00FF00FF;
         let res = (res | (res >> 8)) & 0x0000FFFF0000FFFF;
         let res = res | (res >> 16);
-        dst = u32::to_le_bytes((res & 0x000000000FFFFFFFF) as u32);
+        dst = u32::to_le_bytes((res & 0x00000000FFFFFFFF) as u32);
     }
 
     [
@@ -83,7 +83,38 @@ pub fn egui_blend_u8_fast(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let res = (res8 >> 8) & 0x00FF00FF00FF00FF;
     let res = (res | (res >> 8)) & 0x0000FFFF0000FFFF;
     let res = res | (res >> 16);
-    u32::to_le_bytes((res & 0x000000000FFFFFFFF) as u32)
+    u32::to_le_bytes((res & 0x00000000FFFFFFFF) as u32)
+}
+
+/// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
+#[target_feature(enable = "sse4.1")]
+pub unsafe fn egui_blend_u8_sse41(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+    use std::arch::x86_64 as intr;
+
+    let alpha = src[3];
+    if alpha == 255 {
+        return src;
+    }
+
+    let alpha_compl = intr::_mm_set1_epi16(0xFFi16 ^ (alpha as i16));
+    let e1 = intr::_mm_set1_epi16(0x0080);
+    let mut dst = intr::_mm_cvtsi32_si128(i32::from_le_bytes(dst)); // Load dst into element a
+    dst = intr::_mm_cvtepu8_epi16(dst); // [0,0,0,0,0,0,0,rgba] -> [0,0,0,0,r,g,b,a]
+
+    // dst * alpha_compl + 0x0080
+    dst = intr::_mm_add_epi16(intr::_mm_mullo_epi16(dst, alpha_compl), e1);
+
+    // ((x >> 8) + x) >> 8
+    dst = intr::_mm_add_epi16(dst, intr::_mm_srli_epi16(dst, 8));
+    dst = intr::_mm_srli_epi16(dst, 8);
+
+    // Pack to back to u8
+    let dst = intr::_mm_packus_epi16(dst, intr::_mm_setzero_si128());
+
+    let src = intr::_mm_cvtsi32_si128(i32::from_le_bytes(src)); // Load src into element a
+    let dst = intr::_mm_adds_epu8(dst, src); // dst.saturating_add(src)
+
+    return i32::to_le_bytes(intr::_mm_cvtsi128_si32(dst)); // Return first element of dst
 }
 
 // https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
@@ -149,7 +180,7 @@ pub unsafe fn egui_blend_u8_slice_one_src_sse41(src: [u8; 4], dst: &mut [[u8; 4]
         }
 
         while i < n {
-            dst[i] = egui_blend_u8(src, dst[i]);
+            dst[i] = egui_blend_u8_sse41(src, dst[i]);
             i += 1;
         }
     }
@@ -214,7 +245,7 @@ pub unsafe fn egui_blend_u8_slice_sse41(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
         }
 
         if i < n {
-            dst[i] = egui_blend_u8(src[i], dst[i]);
+            dst[i] = egui_blend_u8_sse41(src[i], dst[i]);
         }
     }
 }
@@ -291,7 +322,7 @@ pub unsafe fn egui_blend_u8_slice_tinted_sse41(
 
         // Tail: handle the last pixel (if any) in scalar
         if i < n {
-            dst[i] = egui_blend_u8(unorm_mult4x4(src[i], tint), dst[i]);
+            dst[i] = egui_blend_u8_sse41(unorm_mult4x4(src[i], tint), dst[i]);
         }
     }
 }

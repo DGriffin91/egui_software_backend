@@ -2,7 +2,10 @@ use egui::{Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef,
-    color::{egui_blend_u8, egui_blend_u8_slice_tinted_sse41, unorm_mult4x4},
+    color::{
+        egui_blend_u8, egui_blend_u8_slice_one_src_sse41, egui_blend_u8_slice_tinted_sse41,
+        unorm_mult4x4,
+    },
     egui_texture::EguiTexture,
 };
 
@@ -67,15 +70,11 @@ pub fn draw_textured_rect(
             let min_uv = [ts_min.x as i32, ts_min.y as i32];
             let mut tex_row = min_uv[1];
             for y in min_y..max_y {
-                let buf_row_start = y * buffer.width;
-                let buf_start = buf_row_start + min_x;
-                let buf_end = buf_row_start + max_x;
-
                 let tex_row_start = tex_row as usize * texture.width;
                 let tex_start = tex_row_start + min_uv[0] as usize;
                 let tex_end = tex_start + max_x - min_x;
 
-                let dst = &mut buffer.data[buf_start..buf_end];
+                let dst = &mut buffer.get_mut_span(min_x, max_x, y);
                 let src = &texture.data[tex_start..tex_end];
 
                 // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
@@ -140,20 +139,28 @@ pub fn draw_solid_rect(
     let max_y = max_y as usize;
 
     if alpha_blend {
-        for y in min_y..max_y {
-            let row_start = y * buffer.width;
-            let start = row_start + min_x;
-            let end = row_start + max_x;
-            for pixel in &mut buffer.data[start..end] {
-                *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+        if is_x86_feature_detected!("sse4.1") {
+            for y in min_y..max_y {
+                // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                unsafe {
+                    egui_blend_u8_slice_one_src_sse41(
+                        const_tri_color_u8x4,
+                        &mut buffer.get_mut_span(min_x, max_x, y),
+                    )
+                }
+            }
+        } else {
+            for y in min_y..max_y {
+                for pixel in buffer.get_mut_span(min_x, max_x, y) {
+                    *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                }
             }
         }
     } else {
         for y in min_y..max_y {
-            let row_start = y * buffer.width;
-            let start = row_start + min_x;
-            let end = row_start + max_x;
-            buffer.data[start..end].fill(const_tri_color_u8x4);
+            buffer
+                .get_mut_span(min_x, max_x, y)
+                .fill(const_tri_color_u8x4);
         }
     }
 }
