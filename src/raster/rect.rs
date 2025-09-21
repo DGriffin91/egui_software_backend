@@ -120,7 +120,7 @@ pub fn draw_solid_rect(
     clip_bounds: &[i32; 4],
     tri_min: Vec2,
     tri_max: Vec2,
-    requires_alpha_blending: bool,
+    alpha_blend: bool,
 ) {
     let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
     let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
@@ -139,7 +139,7 @@ pub fn draw_solid_rect(
     let max_x = max_x as usize;
     let max_y = max_y as usize;
 
-    if requires_alpha_blending {
+    if alpha_blend {
         for y in min_y..max_y {
             let row_start = y * buffer.width;
             let start = row_start + min_x;

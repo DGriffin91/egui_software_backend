@@ -20,11 +20,11 @@ use crate::{
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     textures: &HashMap<egui::TextureId, EguiTexture>,
     buffer: &mut BufferMutRef,
-    convert_tris_to_rects: bool,
     clip_rect: &egui::Rect,
     mesh: &egui::Mesh,
     vert_offset: Vec2,
     allow_raster_opt: bool,
+    convert_tris_to_rects: bool,
 ) {
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
         return;
@@ -100,7 +100,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             u8x4_to_vec4(&color2_u8x4),
         ];
 
-        let scr_tri = [
+        let ss_tri = [
             tri[0].pos.to_vec2(),
             tri[1].pos.to_vec2(),
             tri[2].pos.to_vec2(),
@@ -113,23 +113,21 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         ];
 
         if !allow_raster_opt {
-            raster_tri_with_bary::<SUBPIX_BITS>(clip_bounds, &scr_tri, |x, y, w0, w1, inv_area| {
-                let (b0, b1, b2) = bary(w0, w1, inv_area);
-                let uv = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
-                let tex_color = u8x4_to_vec4(&texture.sample_bilinear(uv));
-                let vert_color = b0 * colors[0] + b1 * colors[1] + b2 * colors[2];
-                let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-                let dst = u8x4_to_vec4(pixel);
-                let src = vert_color * tex_color;
-                *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
-            });
+            draw_tri_uv_vary_col_vary::<SUBPIX_BITS>(
+                buffer,
+                texture,
+                clip_bounds,
+                &colors,
+                &ss_tri,
+                &uv,
+            );
             i += 3;
             continue;
         }
 
         let uvs_match = uv[0] == uv[1] && uv[0] == uv[2];
         let colors_match = color0_u8x4 == color1_u8x4 && color0_u8x4 == color2_u8x4;
-        let mut requires_alpha_blending = true;
+        let mut alpha_blend = true;
 
         if uvs_match {
             const_tex_color_u8x4 = texture.sample_bilinear(uv[0]);
@@ -145,7 +143,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             let const_tri_color = const_vert_color * const_tex_color;
             const_tri_color_u8x4 = vec4_to_u8x4_no_clamp(&const_tri_color);
             if const_tri_color_u8x4[3] == 255 {
-                requires_alpha_blending = false;
+                alpha_blend = false;
             }
         }
 
@@ -156,7 +154,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             && color1_u8x4[3] == 255
             && color2_u8x4[3] == 255
         {
-            requires_alpha_blending = false;
+            alpha_blend = false;
         }
 
         let mut tri2_uvs_match = false;
@@ -205,6 +203,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         }
 
         if uvs_match && colors_match {
+            // both colors and uvs match
             if found_rect && tri2_uvs_match && tri2_colors_match {
                 draw_solid_rect(
                     buffer,
@@ -212,71 +211,31 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                     &clip_bounds,
                     tri_min,
                     tri_max,
-                    requires_alpha_blending,
+                    alpha_blend,
                 );
                 i += 6; // Skip both tris
                 continue;
-            } else if requires_alpha_blending {
-                if is_x86_feature_detected!("sse4.1") {
-                    raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
-                        let range = buffer.get_range(start, end, y);
-                        let dst = cast_slice_mut(&mut buffer.data[range]);
-                        // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                        unsafe { egui_blend_u8_slice_one_src_sse41(const_tri_color_u8x4, dst) }
-                    });
-                } else {
-                    raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
-                        let range = buffer.get_range(start, end, y);
-                        for pixel in &mut buffer.data[range] {
-                            *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
-                        }
-                    });
-                }
             } else {
-                raster_tri_span::<SUBPIX_BITS>(clip_bounds, &scr_tri, |start, end, y| {
-                    let row_start = y as usize * buffer.width;
-                    let start = row_start + start as usize;
-                    let end = row_start + end as usize;
-                    buffer.data[start..end].fill(const_tri_color_u8x4)
-                });
+                draw_solid_tri::<SUBPIX_BITS>(
+                    buffer,
+                    clip_bounds,
+                    const_tri_color_u8x4,
+                    &ss_tri,
+                    alpha_blend,
+                );
             }
         } else if uvs_match {
             // if uvs match but colors don't match
-            if requires_alpha_blending {
-                // Using span here is often about the same perf as raster_tri_with_colors with tiny tris but is faster
-                // when there are big gradients on screen.
-                raster_tri_with_colors_span::<SUBPIX_BITS>(
-                    clip_bounds,
-                    &scr_tri,
-                    &colors,
-                    |start, end, y, stepper| {
-                        for pixel in buffer.get_mut_span(start, end, y) {
-                            let vert_color = stepper.attr;
-                            let dst = u8x4_to_vec4(pixel);
-                            let src = vert_color * const_tex_color;
-                            *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
-                            stepper.col_step();
-                        }
-                    },
-                );
-            } else {
-                raster_tri_with_colors_span::<SUBPIX_BITS>(
-                    clip_bounds,
-                    &scr_tri,
-                    &colors,
-                    |start, end, y, stepper| {
-                        for pixel in buffer.get_mut_span(start, end, y) {
-                            let vert_color = stepper.attr;
-                            let src = vert_color * const_tex_color;
-                            *pixel = vec4_to_u8x4_no_clamp(&src);
-                            stepper.col_step();
-                        }
-                    },
-                );
-            }
+            draw_tri_uv_match_col_vary::<SUBPIX_BITS>(
+                buffer,
+                clip_bounds,
+                const_tex_color,
+                &colors,
+                &ss_tri,
+                alpha_blend,
+            );
         } else if colors_match {
             // if colors match but uvs don't match
-
             if found_rect && tri2_colors_match {
                 draw_textured_rect(
                     buffer,
@@ -290,29 +249,140 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 i += 6; // Skip both tris
                 continue;
             } else {
-                raster_tri_with_uv::<SUBPIX_BITS>(clip_bounds, &scr_tri, &uv, |x, y, uv| {
-                    let tex_color = texture.sample_bilinear(uv);
-                    let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-                    let src = unorm_mult4x4(const_vert_color_u8x4, tex_color);
-                    *pixel = egui_blend_u8(src, *pixel);
-                });
+                draw_tri_uv_vary_col_match::<SUBPIX_BITS>(
+                    buffer,
+                    texture,
+                    clip_bounds,
+                    const_vert_color_u8x4,
+                    &ss_tri,
+                    &uv,
+                );
             }
         } else {
             // Unique colors and uvs, didn't find a rect.
-            // This is the standard full version sans shortcuts. Everything could be rendered using just this.
-            raster_tri_with_bary::<SUBPIX_BITS>(clip_bounds, &scr_tri, |x, y, w0, w1, inv_area| {
-                let (b0, b1, b2) = bary(w0, w1, inv_area);
-                let uv = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
-                let tex_color = u8x4_to_vec4(&texture.sample_bilinear(uv));
-                let vert_color = b0 * colors[0] + b1 * colors[1] + b2 * colors[2];
-                let pixel = buffer.get_mut_clamped(x as usize, y as usize);
-                let dst = u8x4_to_vec4(pixel);
-                let src = vert_color * tex_color;
-                *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
-            });
+            draw_tri_uv_vary_col_vary::<SUBPIX_BITS>(
+                buffer,
+                texture,
+                clip_bounds,
+                &colors,
+                &ss_tri,
+                &uv,
+            );
         }
 
         i += 3;
+    }
+}
+
+fn draw_tri_uv_vary_col_vary<const SUBPIX_BITS: i32>(
+    buffer: &mut BufferMutRef,
+    texture: &EguiTexture,
+    clip_bounds: [i32; 4],
+    colors: &[Vec4; 3],
+    ss_tri: &[Vec2; 3],
+    uv: &[Vec2; 3],
+) {
+    // This is the standard full version sans shortcuts. Everything could be rendered using just this.
+    raster_tri_with_bary::<SUBPIX_BITS>(clip_bounds, ss_tri, |x, y, w0, w1, inv_area| {
+        let (b0, b1, b2) = bary(w0, w1, inv_area);
+        let uv = b0 * uv[0] + b1 * uv[1] + b2 * uv[2];
+        let tex_color = u8x4_to_vec4(&texture.sample_bilinear(uv));
+        let vert_color = b0 * colors[0] + b1 * colors[1] + b2 * colors[2];
+        let pixel = buffer.get_mut_clamped(x as usize, y as usize);
+        let dst = u8x4_to_vec4(pixel);
+        let src = vert_color * tex_color;
+        *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
+    });
+}
+
+fn draw_tri_uv_vary_col_match<const SUBPIX_BITS: i32>(
+    buffer: &mut BufferMutRef,
+    texture: &EguiTexture,
+    clip_bounds: [i32; 4],
+    const_vert_color_u8x4: [u8; 4],
+    ss_tri: &[Vec2; 3],
+    uv: &[Vec2; 3],
+) {
+    raster_tri_with_uv::<SUBPIX_BITS>(clip_bounds, ss_tri, uv, |x, y, uv| {
+        let tex_color = texture.sample_bilinear(uv);
+        let pixel = buffer.get_mut_clamped(x as usize, y as usize);
+        let src = unorm_mult4x4(const_vert_color_u8x4, tex_color);
+        *pixel = egui_blend_u8(src, *pixel);
+    });
+}
+
+fn draw_tri_uv_match_col_vary<const SUBPIX_BITS: i32>(
+    buffer: &mut BufferMutRef,
+    clip_bounds: [i32; 4],
+    const_tex_color: Vec4,
+    colors: &[Vec4; 3],
+    ss_tri: &[Vec2; 3],
+    alpha_blend: bool,
+) {
+    if alpha_blend {
+        // Using span here is often about the same perf as raster_tri_with_colors with tiny tris but is faster
+        // when there are big gradients on screen.
+        raster_tri_with_colors_span::<SUBPIX_BITS>(
+            clip_bounds,
+            ss_tri,
+            colors,
+            |start, end, y, stepper| {
+                for pixel in buffer.get_mut_span(start, end, y) {
+                    let vert_color = stepper.attr;
+                    let dst = u8x4_to_vec4(pixel);
+                    let src = vert_color * const_tex_color;
+                    *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
+                    stepper.col_step();
+                }
+            },
+        );
+    } else {
+        raster_tri_with_colors_span::<SUBPIX_BITS>(
+            clip_bounds,
+            ss_tri,
+            colors,
+            |start, end, y, stepper| {
+                for pixel in buffer.get_mut_span(start, end, y) {
+                    let vert_color = stepper.attr;
+                    let src = vert_color * const_tex_color;
+                    *pixel = vec4_to_u8x4_no_clamp(&src);
+                    stepper.col_step();
+                }
+            },
+        );
+    }
+}
+
+fn draw_solid_tri<const SUBPIX_BITS: i32>(
+    buffer: &mut BufferMutRef,
+    clip_bounds: [i32; 4],
+    const_tri_color_u8x4: [u8; 4],
+    ss_tri: &[Vec2; 3],
+    alpha_blend: bool,
+) {
+    if alpha_blend {
+        if is_x86_feature_detected!("sse4.1") {
+            raster_tri_span::<SUBPIX_BITS>(clip_bounds, ss_tri, |start, end, y| {
+                let range = buffer.get_range(start, end, y);
+                let dst = cast_slice_mut(&mut buffer.data[range]);
+                // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                unsafe { egui_blend_u8_slice_one_src_sse41(const_tri_color_u8x4, dst) }
+            });
+        } else {
+            raster_tri_span::<SUBPIX_BITS>(clip_bounds, ss_tri, |start, end, y| {
+                let range = buffer.get_range(start, end, y);
+                for pixel in &mut buffer.data[range] {
+                    *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
+                }
+            });
+        }
+    } else {
+        raster_tri_span::<SUBPIX_BITS>(clip_bounds, ss_tri, |start, end, y| {
+            let row_start = y * buffer.width;
+            let start = row_start + start;
+            let end = row_start + end;
+            buffer.data[start..end].fill(const_tri_color_u8x4)
+        });
     }
 }
 

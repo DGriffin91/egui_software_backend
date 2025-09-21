@@ -183,21 +183,21 @@ impl EguiSoftwareRender {
                 draw_egui_mesh::<2>(
                     &self.textures,
                     direct_draw_buffer,
-                    self.convert_tris_to_rects,
                     &clip_rect,
                     &self.px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt,
+                    self.convert_tris_to_rects,
                 );
             } else {
                 draw_egui_mesh::<8>(
                     &self.textures,
                     direct_draw_buffer,
-                    self.convert_tris_to_rects,
                     &clip_rect,
                     &self.px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt,
+                    self.convert_tris_to_rects,
                 );
             }
         }
@@ -369,21 +369,21 @@ impl EguiSoftwareRender {
                     draw_egui_mesh::<2>(
                         &self.textures,
                         &mut buffer_ref,
-                        self.convert_tris_to_rects,
                         &clip_rect,
                         &self.px_mesh,
                         offset,
                         self.allow_raster_opt,
+                        self.convert_tris_to_rects,
                     );
                 } else {
                     draw_egui_mesh::<8>(
                         &self.textures,
                         &mut buffer_ref,
-                        self.convert_tris_to_rects,
                         &clip_rect,
                         &self.px_mesh,
                         offset,
                         self.allow_raster_opt,
+                        self.convert_tris_to_rects,
                     );
                 }
                 self.prims_updated_this_frame += 1;
@@ -739,9 +739,9 @@ impl<'a> BufferMutRef<'a> {
 
     #[inline(always)]
     pub fn get_range(&self, start: usize, end: usize, y: usize) -> Range<usize> {
-        let row_start = y as usize * self.width;
-        let start = row_start + start as usize;
-        let end = row_start + end as usize;
+        let row_start = y * self.width;
+        let start = row_start + start;
+        let end = row_start + end;
         start..end
     }
 
