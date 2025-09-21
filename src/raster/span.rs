@@ -81,9 +81,12 @@ fn calc_row_span(stepper: &SingleStepper, max_cols: i64) -> Option<(i64, i64)> {
     let w0 = stepper.w0 + stepper.bias0;
     let w1 = stepper.w1 + stepper.bias1;
     let w2 = stepper.w2 + stepper.bias2;
+
+    // Consider using strength_reduce or libdivide to avoid integer division per row. Steps are calculated per tri.
     let sx0 = stepper.e12.step.x;
     let sx1 = stepper.e20.step.x;
     let sx2 = stepper.e01.step.x;
+
     if w0 < 0 {
         if sx0 > 0 {
             start = start.max(div_ceil(-w0, sx0));
