@@ -2,7 +2,7 @@ use egui::{Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef,
-    color::{egui_blend_u8, unorm_mult4x4},
+    color::{egui_blend_u8, egui_blend_u8_slice_tinted_sse41, unorm_mult4x4},
     egui_texture::EguiTexture,
 };
 
@@ -60,18 +60,42 @@ pub fn draw_textured_rect(
     };
 
     if use_nearest_sampling {
-        let min_uv = [ts_min.x as i32, ts_min.y as i32];
-        let mut uv = min_uv;
-        for y in min_y..max_y {
-            uv[0] = min_uv[0];
-            let buf_y = y * buffer.width;
-            for x in min_x..max_x {
-                let tex_color = texture.get(uv);
-                let pixel = &mut buffer.data[x + buf_y];
-                *pixel = egui_blend_u8(unorm_mult4x4(const_vert_color_u8x4, tex_color), *pixel);
-                uv[0] += 1;
+        if is_x86_feature_detected!("sse4.1")
+            && (ts_max.x as usize) < texture.width
+            && (ts_max.y as usize) < texture.height
+        {
+            let min_uv = [ts_min.x as i32, ts_min.y as i32];
+            let mut tex_row = min_uv[1];
+            for y in min_y..max_y {
+                let buf_row_start = y * buffer.width;
+                let buf_start = buf_row_start + min_x;
+                let buf_end = buf_row_start + max_x;
+
+                let tex_row_start = tex_row as usize * texture.width;
+                let tex_start = tex_row_start + min_uv[0] as usize;
+                let tex_end = tex_start + max_x - min_x;
+
+                let dst = &mut buffer.data[buf_start..buf_end];
+                let src = &texture.data[tex_start..tex_end];
+
+                // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                unsafe { egui_blend_u8_slice_tinted_sse41(src, const_vert_color_u8x4, dst) };
+                tex_row += 1;
             }
-            uv[1] += 1;
+        } else {
+            let min_uv = [ts_min.x as i32, ts_min.y as i32];
+            let mut uv = min_uv;
+            for y in min_y..max_y {
+                uv[0] = min_uv[0];
+                let buf_y = y * buffer.width;
+                for x in min_x..max_x {
+                    let tex_color = texture.get(uv);
+                    let pixel = &mut buffer.data[x + buf_y];
+                    *pixel = egui_blend_u8(unorm_mult4x4(const_vert_color_u8x4, tex_color), *pixel);
+                    uv[0] += 1;
+                }
+                uv[1] += 1;
+            }
         }
     } else {
         let mut uv = min_uv;
