@@ -1,9 +1,15 @@
-use egui::{TextureFilter, TextureOptions, Vec2, vec2};
+use egui::{Color32, TextureFilter, TextureOptions, Vec2, vec2};
 
-use crate::color::{u8x4_to_vec4, vec4_to_u8x4_no_clamp};
+use crate::{
+    ColorFieldOrder,
+    color::{swizzle_rgba_bgra, u8x4_to_vec4, vec4_to_u8x4_no_clamp},
+};
 
 pub struct EguiTexture {
     pub data: Vec<[u8; 4]>,
+    // Common case: The default egui texture has the top-left corner pixel fully white.
+    // https://github.com/emilk/egui/blob/c97c065a575ec6e657bb42872890a00d0fb391c1/crates/epaint/src/lib.rs#L92
+    pub uv_zero_val: [u8; 4],
     /// width - 1
     pub width_extent: i32,
     /// height - 1
@@ -16,6 +22,33 @@ pub struct EguiTexture {
 }
 
 impl EguiTexture {
+    pub fn new(
+        field_order: ColorFieldOrder,
+        options: TextureOptions,
+        size: [usize; 2],
+        pixels: &[Color32],
+    ) -> EguiTexture {
+        let data = pixels
+            .iter()
+            .map(|p| match field_order {
+                ColorFieldOrder::RGBA => p.to_array(),
+                ColorFieldOrder::BGRA => swizzle_rgba_bgra(p.to_array()),
+            })
+            .collect::<Vec<_>>();
+        let uv_zero_val = data[0];
+        let new_texture = EguiTexture {
+            data,
+            width_extent: size[0] as i32 - 1,
+            height_extent: size[1] as i32 - 1,
+            width: size[0],
+            height: size[1],
+            fsize: vec2(size[0] as f32, size[1] as f32),
+            options,
+            uv_zero_val,
+        };
+        new_texture
+    }
+
     #[allow(dead_code)]
     pub fn sample_nearest(&self, uv: Vec2) -> [u8; 4] {
         let ss_x = ((uv.x * self.fsize.x) as i32).max(0).min(self.width_extent);
@@ -32,6 +65,10 @@ impl EguiTexture {
     }
 
     pub fn sample_bilinear(&self, uv: Vec2) -> [u8; 4] {
+        if uv == Vec2::ZERO {
+            return self.uv_zero_val;
+        }
+
         let w = self.fsize.x;
         let h = self.fsize.y;
 

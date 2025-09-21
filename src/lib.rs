@@ -588,24 +588,10 @@ impl EguiSoftwareRender {
                     }
                 }
             } else {
-                self.textures.insert(
-                    *id,
-                    EguiTexture {
-                        data: pixels
-                            .iter()
-                            .map(|p| match self.output_field_order {
-                                ColorFieldOrder::RGBA => p.to_array(),
-                                ColorFieldOrder::BGRA => swizzle_rgba_bgra(p.to_array()),
-                            })
-                            .collect::<Vec<_>>(),
-                        width_extent: size[0] as i32 - 1,
-                        height_extent: size[1] as i32 - 1,
-                        width: size[0],
-                        height: size[1],
-                        fsize: vec2(size[0] as f32, size[1] as f32),
-                        options: delta.options,
-                    },
-                );
+                let new_texture =
+                    EguiTexture::new(self.output_field_order, delta.options, size, &pixels);
+
+                self.textures.insert(*id, new_texture);
             }
         }
     }
