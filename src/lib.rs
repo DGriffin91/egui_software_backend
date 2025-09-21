@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap, ops::Range};
 use egui::{Color32, Pos2, Vec2, vec2};
 
 use crate::{
-    color::{egui_blend_u8, egui_blend_u8_slice_sse41, swizzle_rgba_bgra},
+    color::{egui_blend_u8_fast, egui_blend_u8_slice_sse41, swizzle_rgba_bgra},
     egui_texture::EguiTexture,
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
@@ -472,7 +472,7 @@ impl EguiSoftwareRender {
                         let src_row = &prim_buf.data[prim_slice];
                         let dst_row = &mut self.canvas.data[canvas_slice];
                         for (pixel, src) in dst_row.iter_mut().zip(src_row) {
-                            *pixel = egui_blend_u8(*src, *pixel);
+                            *pixel = egui_blend_u8_fast(*src, *pixel);
                         }
                     }
                 }
@@ -534,7 +534,7 @@ impl EguiSoftwareRender {
                     let src_row = &self.canvas.data[row_start + x_start..row_start + x_end];
                     let dst_row = &mut buffer.data[row_start + x_start..row_start + x_end];
                     for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                        *dst = egui_blend_u8(src, *dst);
+                        *dst = egui_blend_u8_fast(src, *dst);
                     }
                 }
             }
