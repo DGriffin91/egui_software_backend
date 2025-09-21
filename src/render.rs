@@ -10,9 +10,9 @@ use crate::{
         vec4_to_u8x4_no_clamp,
     },
     math::vec4::Vec4,
-    raster_bary::{bary, raster_tri_with_bary, raster_tri_with_colors, raster_tri_with_uv},
-    raster_rect::{draw_solid_rect, draw_textured_rect},
-    raster_span::raster_tri_span,
+    raster::bary::{bary, raster_tri_with_bary, raster_tri_with_colors, raster_tri_with_uv},
+    raster::rect::{draw_solid_rect, draw_textured_rect},
+    raster::span::raster_tri_span,
 };
 
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(

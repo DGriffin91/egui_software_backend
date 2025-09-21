@@ -1,4 +1,4 @@
-use crate::raster_bary::stepper_from_ss_tri_backface_cull;
+use crate::raster::bary::stepper_from_ss_tri_backface_cull;
 
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
