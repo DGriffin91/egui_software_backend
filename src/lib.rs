@@ -3,11 +3,13 @@ use std::{borrow::Cow, collections::HashMap, ops::Range};
 use egui::{Color32, Pos2, Vec2, vec2};
 
 use crate::{
-    egui_texture::{EguiTexture, egui_blend_u8, egui_blend_u8_slice_sse41, swizzle_rgba_bgra},
+    color::{egui_blend_u8, egui_blend_u8_slice_sse41, swizzle_rgba_bgra},
+    egui_texture::EguiTexture,
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
 };
 
+pub(crate) mod color;
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
 pub(crate) mod i64vec2;

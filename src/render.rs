@@ -5,7 +5,7 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
-    egui_texture::{
+    color::{
         egui_blend, egui_blend_u8, egui_blend_u8_slice_one_src_sse41, u8x4_to_vec4, unorm_mult4x4,
         vec4_to_u8x4_no_clamp,
     },

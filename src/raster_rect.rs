@@ -2,7 +2,8 @@ use egui::{Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef,
-    egui_texture::{EguiTexture, egui_blend_u8, unorm_mult4x4},
+    color::{egui_blend_u8, unorm_mult4x4},
+    egui_texture::EguiTexture,
 };
 
 pub fn draw_textured_rect(
@@ -44,11 +45,12 @@ pub fn draw_textured_rect(
     min_uv += uv_step * (vec2(min_x as f32, min_y as f32) - tri_min).max(Vec2::ZERO); // Offset to account for clip
     min_uv += uv_step * 0.5; // Raster at pixel centers
 
-    let ss_min = min_uv * texture.fsize;
+    let ts_min = min_uv * texture.fsize;
+    let ts_max = max_uv * texture.fsize;
 
     let use_nearest_sampling = {
         let ss_step = uv_step * texture.fsize;
-        let dist_from_px_center = (ss_min - ss_min.floor() - vec2(0.5, 0.5)).abs();
+        let dist_from_px_center = (ts_min - ts_min.floor() - vec2(0.5, 0.5)).abs();
         let steps_off_from_1px = (ss_step - Vec2::ONE).abs();
         let eps = 0.01;
         let steps_are_1px = steps_off_from_1px.x < eps && steps_off_from_1px.y < eps;
@@ -58,9 +60,7 @@ pub fn draw_textured_rect(
     };
 
     if use_nearest_sampling {
-        // TODO perf: make a egui_blend_u8_slice_sse41 that also can incorporate the const_vert_color_u8x4
-        // esp in the case where the const_vert_color_u8x4 is opaque (but rgb are often not 255)
-        let min_uv = [ss_min.x as i32, ss_min.y as i32];
+        let min_uv = [ts_min.x as i32, ts_min.y as i32];
         let mut uv = min_uv;
         for y in min_y..max_y {
             uv[0] = min_uv[0];
@@ -68,8 +68,7 @@ pub fn draw_textured_rect(
             for x in min_x..max_x {
                 let tex_color = texture.get(uv);
                 let pixel = &mut buffer.data[x + buf_y];
-                let src = unorm_mult4x4(const_vert_color_u8x4, tex_color);
-                *pixel = egui_blend_u8(src, *pixel);
+                *pixel = egui_blend_u8(unorm_mult4x4(const_vert_color_u8x4, tex_color), *pixel);
                 uv[0] += 1;
             }
             uv[1] += 1;
