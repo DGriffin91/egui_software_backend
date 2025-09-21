@@ -114,7 +114,7 @@ pub unsafe fn egui_blend_u8_sse41(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let src = intr::_mm_cvtsi32_si128(i32::from_le_bytes(src)); // Load src into element a
     let dst = intr::_mm_adds_epu8(dst, src); // dst.saturating_add(src)
 
-    return i32::to_le_bytes(intr::_mm_cvtsi128_si32(dst)); // Return first element of dst
+    i32::to_le_bytes(intr::_mm_cvtsi128_si32(dst)) // Return first element of dst
 }
 
 // https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html

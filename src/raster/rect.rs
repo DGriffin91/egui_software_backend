@@ -145,7 +145,7 @@ pub fn draw_solid_rect(
                 unsafe {
                     egui_blend_u8_slice_one_src_sse41(
                         const_tri_color_u8x4,
-                        &mut buffer.get_mut_span(min_x, max_x, y),
+                        buffer.get_mut_span(min_x, max_x, y),
                     )
                 }
             }
