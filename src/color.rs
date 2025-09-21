@@ -160,17 +160,17 @@ pub unsafe fn egui_blend_u8_slice_one_src_sse41(src: [u8; 4], dst: &mut [[u8; 4]
                 // Load two dst pixels
                 let d64 = core::ptr::read_unaligned(dst);
                 let d128 = intr::_mm_cvtsi64_si128(d64 as i64);
+                // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
                 let dst16 = intr::_mm_cvtepu8_epi16(d128);
 
                 // dst * alpha_compl + 0x0080008000800080
                 let res16 = intr::_mm_add_epi16(intr::_mm_mullo_epi16(dst16, simd_alpha_compl), e1);
 
-                // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation.
-                // (can you see why?)
+                // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation. (can you see why?)
                 let res16 = intr::_mm_mulhi_epu16(res16, e2);
                 let mut dst8 = intr::_mm_packus_epi16(res16, res16); // Pack back to u8
 
-                // saturating_add src to dst
+                // dst.saturating_add(src)
                 dst8 = intr::_mm_adds_epu8(dst8, src128);
 
                 let lo64 = intr::_mm_cvtsi128_si64(dst8) as u64;
@@ -209,9 +209,11 @@ pub unsafe fn egui_blend_u8_slice_sse41(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
             // Load two src pixels
             let src = src.as_ptr().add(i).cast::<u64>();
             let src64 = core::ptr::read_unaligned(src);
+            // [0,0,rgba,rgba] -> [rgba,rgba,rgba,rgba]
             let src128 = intr::_mm_set1_epi64x(src64 as i64);
 
             let src_simd = intr::_mm_cvtsi64_si128(src64 as i64);
+            // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
             let src_simd = intr::_mm_cvtepu8_epi16(src_simd);
 
             // Broadcast alpha within each pixel's 4 lanes
@@ -231,12 +233,11 @@ pub unsafe fn egui_blend_u8_slice_sse41(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
             let dst_term = intr::_mm_mullo_epi16(dst16, simd_alpha_compl);
             let res16 = intr::_mm_add_epi16(dst_term, e1);
 
-            // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation.
-            // (can you see why?)
+            // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation. (can you see why?)
             let res16 = intr::_mm_mulhi_epu16(res16, e2);
             let mut dst8 = intr::_mm_packus_epi16(res16, res16); // Pack back to u8
 
-            // saturating_add src to dst
+            // dst.saturating_add(src)
             dst8 = intr::_mm_adds_epu8(dst8, src128);
 
             let lo64 = intr::_mm_cvtsi128_si64(dst8) as u64;
@@ -282,6 +283,7 @@ pub unsafe fn egui_blend_u8_slice_tinted_sse41(
             let src64 = core::ptr::read_unaligned(src);
 
             let src_simd = intr::_mm_cvtsi64_si128(src64 as i64);
+            // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
             let src_simd = intr::_mm_cvtepu8_epi16(src_simd);
 
             // src_tinted = (src16 * vert16 + 128) * 257 >> 16  (rounded /255)
@@ -306,12 +308,11 @@ pub unsafe fn egui_blend_u8_slice_tinted_sse41(
             let dst_term = intr::_mm_mullo_epi16(dst16, simd_alpha_compl);
             let res16 = intr::_mm_add_epi16(dst_term, e1);
 
-            // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation.
-            // (can you see why?)
+            // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation. (can you see why?)
             let res16 = intr::_mm_mulhi_epu16(res16, e2);
             let mut dst8 = intr::_mm_packus_epi16(res16, res16); // Pack back to u8
 
-            // saturating_add src to dst
+            // dst.saturating_add(src)
             let src_tinted8 = intr::_mm_packus_epi16(src_tinted16, src_tinted16);
             dst8 = intr::_mm_adds_epu8(dst8, src_tinted8);
 
