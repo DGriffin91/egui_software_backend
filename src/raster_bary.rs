@@ -3,8 +3,8 @@ use std::ops::{Add, AddAssign, Mul, Sub};
 use egui::Vec2;
 
 use crate::{
-    i64vec2::{I64Vec2, i64vec2},
-    vec4::Vec4,
+    math::i64vec2::{I64Vec2, i64vec2},
+    math::vec4::Vec4,
 };
 
 // https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/

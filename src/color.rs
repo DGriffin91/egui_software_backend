@@ -1,4 +1,4 @@
-use crate::vec4::{Vec4, vec4};
+use crate::math::vec4::{Vec4, vec4};
 
 #[inline(always)]
 pub fn vec4_to_u8x4_no_clamp(v: &Vec4) -> [u8; 4] {

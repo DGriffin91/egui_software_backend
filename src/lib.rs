@@ -12,14 +12,13 @@ use crate::{
 pub(crate) mod color;
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
-pub(crate) mod i64vec2;
+pub(crate) mod math;
 pub(crate) mod raster_bary;
 pub(crate) mod raster_rect;
 pub(crate) mod raster_span;
 pub(crate) mod render;
 #[cfg(feature = "test_render")]
 pub mod test_render;
-pub(crate) mod vec4;
 
 const TILE_SIZE: usize = 64;
 
