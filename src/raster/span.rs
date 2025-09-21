@@ -1,11 +1,16 @@
-use crate::raster::bary::{SingleStepper, stepper_from_ss_tri_backface_cull};
+use egui::Vec2;
+
+use crate::{
+    math::vec4::Vec4,
+    raster::bary::{AttributeStepper, SingleStepper, stepper_from_ss_tri_backface_cull},
+};
 
 /// ss for screen space (unit is screen pixel)
 pub fn raster_tri_span<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
     ss_tri: &[egui::Vec2; 3],
     // ss_start, ss_end, ss_y
-    mut span: impl FnMut(i64, i64, i64),
+    mut span: impl FnMut(usize, usize, usize),
 ) {
     let Some((ss_min, ss_max, _sp_inv_area, mut stepper)) =
         stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
@@ -21,10 +26,49 @@ pub fn raster_tri_span<const SUBPIX_BITS: i32>(
         if let Some((start, end)) = calc_row_span(&stepper, max_cols) {
             let ss_start = ss_min.x + start;
             let ss_end = ss_min.x + end;
-            span(ss_start, ss_end, ss_y);
+            span(ss_start as usize, ss_end as usize, ss_y as usize);
         };
 
         stepper.row_step();
+    }
+}
+
+/// ss for screen space (unit is screen pixel)
+pub fn raster_tri_with_colors_span<const SUBPIX_BITS: i32>(
+    ss_bounds: [i32; 4],
+    ss_tri: &[Vec2; 3],
+    colors: &[Vec4; 3],
+    // ss_start, ss_end, ss_y, AttributeStepper<Vec4>
+    mut span: impl FnMut(usize, usize, usize, &mut AttributeStepper<Vec4>),
+) {
+    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
+        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
+    else {
+        return;
+    };
+
+    let mut c_stepper = stepper.attr(colors, sp_inv_area);
+
+    let max_cols = (ss_max.x - ss_min.x) + 1;
+
+    for ss_y in ss_min.y..=ss_max.y {
+        stepper.row_start();
+        c_stepper.row_start();
+
+        if let Some((start, end)) = calc_row_span(&stepper, max_cols) {
+            c_stepper.attr += c_stepper.step_x * start as f32;
+            let ss_start = ss_min.x + start;
+            let ss_end = ss_min.x + end;
+            span(
+                ss_start as usize,
+                ss_end as usize,
+                ss_y as usize,
+                &mut c_stepper,
+            );
+        };
+
+        stepper.row_step();
+        c_stepper.row_step();
     }
 }
 

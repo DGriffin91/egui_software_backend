@@ -2,10 +2,7 @@ use std::ops::{Add, AddAssign, Mul, Sub};
 
 use egui::Vec2;
 
-use crate::{
-    math::i64vec2::{I64Vec2, i64vec2},
-    math::vec4::Vec4,
-};
+use crate::math::i64vec2::{I64Vec2, i64vec2};
 
 // https://fgiesen.wordpress.com/2013/02/17/optimizing-sw-occlusion-culling-index/
 // https://jtsorlinis.github.io/rendering-tutorial/
@@ -27,38 +24,6 @@ pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
     };
 
     let mut uv_stepper = stepper.attr(uv, sp_inv_area);
-
-    for ss_y in ss_min.y..=ss_max.y {
-        stepper.row_start();
-        uv_stepper.row_start();
-        for ss_x in ss_min.x..=ss_max.x {
-            if stepper.inside_tri_pos_area() {
-                raster(ss_x, ss_y, uv_stepper.attr);
-            }
-            stepper.col_step();
-            uv_stepper.col_step();
-        }
-        stepper.row_step();
-        uv_stepper.row_step();
-    }
-}
-
-/// ss for screen space (unit is screen pixel)
-/// sp for subpixel space (unit fraction of screen pixel)
-pub fn raster_tri_with_colors<const SUBPIX_BITS: i32>(
-    ss_bounds: [i32; 4],
-    ss_tri: &[Vec2; 3],
-    colors: &[Vec4; 3],
-    // ss_x, ss_y, color
-    mut raster: impl FnMut(i64, i64, Vec4),
-) {
-    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
-        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
-    else {
-        return;
-    };
-
-    let mut uv_stepper = stepper.attr(colors, sp_inv_area);
 
     for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
@@ -248,7 +213,7 @@ impl SingleStepper {
     /// Generate stepper for float attribute (like vertex UVs or vertex colors)
     /// Depends on SingleStepper's initial state. Make sure to run before using SingleStepper::row_step() or
     /// SingleStepper::col_step()
-    fn attr<T>(&self, attr: &[T; 3], sp_inv_area: f32) -> AttributeStepper<T>
+    pub fn attr<T>(&self, attr: &[T; 3], sp_inv_area: f32) -> AttributeStepper<T>
     where
         T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
     {
@@ -317,14 +282,14 @@ pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
     (b0, b1, b2)
 }
 
-struct AttributeStepper<T>
+pub struct AttributeStepper<T>
 where
     T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
 {
-    step_x: T,
-    step_y: T,
-    row: T,
-    attr: T,
+    pub step_x: T,
+    pub step_y: T,
+    pub row: T,
+    pub attr: T,
 }
 
 impl<T> AttributeStepper<T>

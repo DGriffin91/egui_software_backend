@@ -738,6 +738,20 @@ impl<'a> BufferMutRef<'a> {
     }
 
     #[inline(always)]
+    pub fn get_range(&self, start: usize, end: usize, y: usize) -> Range<usize> {
+        let row_start = y as usize * self.width;
+        let start = row_start + start as usize;
+        let end = row_start + end as usize;
+        start..end
+    }
+
+    #[inline(always)]
+    pub fn get_mut_span(&mut self, start: usize, end: usize, y: usize) -> &mut [[u8; 4]] {
+        let range = self.get_range(start, end, y);
+        &mut self.data[range]
+    }
+
+    #[inline(always)]
     pub fn get_mut_clamped(&mut self, x: usize, y: usize) -> &mut [u8; 4] {
         let x = x.min(self.width_extent);
         let y = y.min(self.height_extent);
