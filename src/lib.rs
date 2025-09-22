@@ -3,13 +3,15 @@ use std::{borrow::Cow, collections::HashMap, ops::Range};
 use egui::{Color32, Pos2, Vec2, vec2};
 
 use crate::{
-    color::{egui_blend_u8_fast, egui_blend_u8_slice_sse41, swizzle_rgba_bgra},
+    color::{egui_blend_u8_fast, swizzle_rgba_bgra},
     egui_texture::EguiTexture,
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
 };
 
 pub(crate) mod color;
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod color_x86_64_simd;
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
 pub(crate) mod math;
@@ -17,6 +19,14 @@ pub(crate) mod raster;
 pub(crate) mod render;
 #[cfg(feature = "test_render")]
 pub mod test_render;
+
+#[inline(always)]
+pub(crate) fn sse41() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    return is_x86_feature_detected!("sse4.1");
+    #[cfg(not(target_arch = "x86_64"))]
+    return false;
+}
 
 const TILE_SIZE: usize = 64;
 
@@ -458,13 +468,14 @@ impl EguiSoftwareRender {
                     (canvas_start..canvas_end, prim_start..prim_end)
                 };
 
-                if is_x86_feature_detected!("sse4.1") {
+                if sse41() {
+                    #[cfg(target_arch = "x86_64")]
                     for y in min_y..max_y {
                         let (canvas_slice, prim_slice) = get_ranges(y);
                         let src_row = &prim_buf.data[prim_slice];
                         let dst_row = &mut self.canvas.data[canvas_slice];
-                        // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                        unsafe { egui_blend_u8_slice_sse41(src_row, dst_row) }
+                        // SAFETY: we first check sse41() outside the loop
+                        unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
                     }
                 } else {
                     for y in min_y..max_y {
@@ -520,12 +531,13 @@ impl EguiSoftwareRender {
             let x_end = (x_start + TILE_SIZE).min(width);
             let y_end = (y_start + TILE_SIZE).min(height);
 
-            if is_x86_feature_detected!("sse4.1") {
+            if sse41() {
+                #[cfg(target_arch = "x86_64")]
                 for y in y_start..y_end {
                     let src_row = self.canvas.get_span(x_start, x_end, y);
                     let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                    unsafe { egui_blend_u8_slice_sse41(src_row, dst_row) }
+                    // SAFETY: we first check sse41() outside the loop
+                    unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
                 }
             } else {
                 for y in y_start..y_end {

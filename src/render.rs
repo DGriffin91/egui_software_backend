@@ -5,17 +5,14 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
-    color::{
-        egui_blend, egui_blend_u8, egui_blend_u8_slice_one_src_sse41,
-        egui_blend_u8_slice_one_src_tinted_fn_sse41, u8x4_to_vec4, unorm_mult4x4,
-        vec4_to_u8x4_no_clamp,
-    },
+    color::{egui_blend, egui_blend_u8, u8x4_to_vec4, unorm_mult4x4, vec4_to_u8x4_no_clamp},
     math::vec4::Vec4,
     raster::{
         bary::{bary, raster_tri_with_bary, raster_tri_with_uv},
         rect::{draw_solid_rect, draw_textured_rect},
         span::{raster_tri_span, raster_tri_with_colors_span},
     },
+    sse41,
 };
 
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
@@ -326,14 +323,15 @@ fn draw_tri_uv_match_col_vary<const SUBPIX_BITS: i32>(
         // Using span here is often about the same perf as raster_tri_with_colors with tiny tris but is faster
         // when there are big gradients on screen.
 
-        if is_x86_feature_detected!("sse4.1") {
+        if sse41() {
+            #[cfg(target_arch = "x86_64")]
             raster_tri_with_colors_span::<SUBPIX_BITS>(
                 clip_bounds,
                 ss_tri,
                 colors,
                 |start, end, y, stepper| unsafe {
-                    // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                    egui_blend_u8_slice_one_src_tinted_fn_sse41(
+                    // SAFETY: we first check sse41() outside the loop
+                    crate::color_x86_64_simd::egui_blend_u8_slice_one_src_tinted_fn_sse41(
                         const_tex_color_u8x4,
                         || {
                             let v = vec4_to_u8x4_no_clamp(&stepper.attr);
@@ -385,12 +383,18 @@ fn draw_solid_tri<const SUBPIX_BITS: i32>(
     alpha_blend: bool,
 ) {
     if alpha_blend {
-        if is_x86_feature_detected!("sse4.1") {
+        if sse41() {
+            #[cfg(target_arch = "x86_64")]
             raster_tri_span::<SUBPIX_BITS>(clip_bounds, ss_tri, |start, end, y| {
                 let range = buffer.get_range(start, end, y);
                 let dst = cast_slice_mut(&mut buffer.data[range]);
-                // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                unsafe { egui_blend_u8_slice_one_src_sse41(const_tri_color_u8x4, dst) }
+                // SAFETY: we first check sse41() outside the loop
+                unsafe {
+                    crate::color_x86_64_simd::egui_blend_u8_slice_one_src_sse41(
+                        const_tri_color_u8x4,
+                        dst,
+                    )
+                }
             });
         } else {
             raster_tri_span::<SUBPIX_BITS>(clip_bounds, ss_tri, |start, end, y| {

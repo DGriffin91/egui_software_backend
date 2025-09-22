@@ -2,11 +2,9 @@ use egui::{Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef,
-    color::{
-        egui_blend_u8, egui_blend_u8_slice_one_src_sse41, egui_blend_u8_slice_tinted_sse41,
-        unorm_mult4x4,
-    },
+    color::{egui_blend_u8, unorm_mult4x4},
     egui_texture::EguiTexture,
+    sse41,
 };
 
 pub fn draw_textured_rect(
@@ -63,23 +61,29 @@ pub fn draw_textured_rect(
     };
 
     if use_nearest_sampling {
-        if is_x86_feature_detected!("sse4.1")
-            && (ts_max.x as usize) < texture.width
-            && (ts_max.y as usize) < texture.height
-        {
-            let min_uv = [ts_min.x as i32, ts_min.y as i32];
-            let mut tex_row = min_uv[1];
-            for y in min_y..max_y {
-                let tex_row_start = tex_row as usize * texture.width;
-                let tex_start = tex_row_start + min_uv[0] as usize;
-                let tex_end = tex_start + max_x - min_x;
+        if sse41() && (ts_max.x as usize) < texture.width && (ts_max.y as usize) < texture.height {
+            #[cfg(target_arch = "x86_64")]
+            {
+                let min_uv = [ts_min.x as i32, ts_min.y as i32];
+                let mut tex_row = min_uv[1];
+                for y in min_y..max_y {
+                    let tex_row_start = tex_row as usize * texture.width;
+                    let tex_start = tex_row_start + min_uv[0] as usize;
+                    let tex_end = tex_start + max_x - min_x;
 
-                let dst = &mut buffer.get_mut_span(min_x, max_x, y);
-                let src = &texture.data[tex_start..tex_end];
+                    let dst = &mut buffer.get_mut_span(min_x, max_x, y);
+                    let src = &texture.data[tex_start..tex_end];
 
-                // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
-                unsafe { egui_blend_u8_slice_tinted_sse41(src, const_vert_color_u8x4, dst) };
-                tex_row += 1;
+                    // SAFETY: we first check sse41() outside the loop
+                    unsafe {
+                        crate::color_x86_64_simd::egui_blend_u8_slice_tinted_sse41(
+                            src,
+                            const_vert_color_u8x4,
+                            dst,
+                        )
+                    };
+                    tex_row += 1;
+                }
             }
         } else {
             let min_uv = [ts_min.x as i32, ts_min.y as i32];
@@ -139,11 +143,12 @@ pub fn draw_solid_rect(
     let max_y = max_y as usize;
 
     if alpha_blend {
-        if is_x86_feature_detected!("sse4.1") {
+        if sse41() {
+            #[cfg(target_arch = "x86_64")]
             for y in min_y..max_y {
-                // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                // SAFETY: we first check sse41() outside the loop
                 unsafe {
-                    egui_blend_u8_slice_one_src_sse41(
+                    crate::color_x86_64_simd::egui_blend_u8_slice_one_src_sse41(
                         const_tri_color_u8x4,
                         buffer.get_mut_span(min_x, max_x, y),
                     )
