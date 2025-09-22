@@ -273,7 +273,7 @@ pub unsafe fn egui_blend_u8_slice_tinted_sse41(
         let e1 = intr::_mm_set1_epi16(0x0080);
         let e2 = intr::_mm_set1_epi16(0x0101);
 
-        let t32 = intr::_mm_set1_epi32(i32::from_ne_bytes(tint));
+        let t32 = intr::_mm_set1_epi32(i32::from_le_bytes(tint));
         let tint16 = intr::_mm_cvtepu8_epi16(t32);
 
         let mut i = 0usize;
@@ -328,6 +328,84 @@ pub unsafe fn egui_blend_u8_slice_tinted_sse41(
     }
 }
 
+// https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
+/// dst[i] = blend(src * tint_fn(), dst[i]) // As unorm
+/// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
+#[target_feature(enable = "sse4.1")]
+pub unsafe fn egui_blend_u8_slice_one_src_tinted_fn_sse41(
+    src: [u8; 4],
+    mut tint_fn: impl FnMut() -> [u8; 4],
+    dst: &mut [[u8; 4]],
+) {
+    unsafe {
+        use std::arch::x86_64 as intr;
+
+        let n = dst.len();
+        if n == 0 {
+            return;
+        }
+
+        let src32 = u32::from_le_bytes(src);
+        let src64 = (src32 as u64) | ((src32 as u64) << 32);
+
+        let ones = intr::_mm_set1_epi16(0x00FF);
+        let e1 = intr::_mm_set1_epi16(0x0080);
+        let e2 = intr::_mm_set1_epi16(0x0101);
+
+        let mut i = 0usize;
+        while i + 1 < n {
+            // Load two tint values
+            let tint_a = u32::from_le_bytes(tint_fn()) as i64;
+            let tint_b = u32::from_le_bytes(tint_fn()) as i64;
+            let tint_simd = intr::_mm_cvtsi64_si128((tint_b << 32) | tint_a);
+            let tint16 = intr::_mm_cvtepu8_epi16(tint_simd);
+
+            let src_simd = intr::_mm_cvtsi64_si128(src64 as i64);
+            // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
+            let src_simd = intr::_mm_cvtepu8_epi16(src_simd);
+
+            // src_tinted = (src16 * vert16 + 128) * 257 >> 16  (rounded /255)
+            let tint_mul = intr::_mm_mullo_epi16(src_simd, tint16);
+            let tint_rounded = intr::_mm_add_epi16(tint_mul, e1);
+            let src_tinted16 = intr::_mm_mulhi_epu16(tint_rounded, e2);
+
+            // Broadcast alpha within each pixel's 4 lanes
+            let a_broadcast_lo = intr::_mm_shufflelo_epi16(src_tinted16, 0b11111111);
+            let a_broadcast = intr::_mm_shufflehi_epi16(a_broadcast_lo, 0b11111111);
+
+            // simd_alpha_compl = 255 - A for each lane, per pixel
+            let simd_alpha_compl = intr::_mm_sub_epi16(ones, a_broadcast);
+
+            // Load two dst pixels
+            let dst = dst.as_mut_ptr().add(i).cast::<u64>();
+            let d64 = core::ptr::read_unaligned(dst);
+            let d128 = intr::_mm_cvtsi64_si128(d64 as i64);
+            let dst16 = intr::_mm_cvtepu8_epi16(d128);
+
+            // dst * alpha_compl + 0x0080008000800080
+            let dst_term = intr::_mm_mullo_epi16(dst16, simd_alpha_compl);
+            let res16 = intr::_mm_add_epi16(dst_term, e1);
+
+            // This mulhi is equivalent to the ((x >> 8) + x) >> 8 operation. (can you see why?)
+            let res16 = intr::_mm_mulhi_epu16(res16, e2);
+            let mut dst8 = intr::_mm_packus_epi16(res16, res16); // Pack back to u8
+
+            // dst.saturating_add(src)
+            let src_tinted8 = intr::_mm_packus_epi16(src_tinted16, src_tinted16);
+            dst8 = intr::_mm_adds_epu8(dst8, src_tinted8);
+
+            let lo64 = intr::_mm_cvtsi128_si64(dst8) as u64;
+            core::ptr::write_unaligned(dst, lo64);
+            i += 2;
+        }
+
+        // Tail: handle the last pixel (if any) in scalar
+        if i < n {
+            dst[i] = egui_blend_u8_sse41(unorm_mult4x4(src, tint_fn()), dst[i]);
+        }
+    }
+}
+
 #[inline(always)]
 pub fn swizzle_rgba_bgra(a: [u8; 4]) -> [u8; 4] {
     [a[2], a[1], a[0], a[3]]
@@ -352,4 +430,26 @@ pub fn unorm_mult(mut a: u32, b: u32) -> u32 {
     a += 0x80;
     a += a >> 8;
     a >> 8
+}
+
+#[target_feature(enable = "sse4.1")]
+#[allow(unused)]
+pub unsafe fn unorm_mult4x4_sse41(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
+    use std::arch::x86_64 as intr;
+
+    let e1 = intr::_mm_set1_epi16(0x0080);
+    let a = intr::_mm_cvtepu8_epi16(intr::_mm_cvtsi32_si128(i32::from_le_bytes(a)));
+    let b = intr::_mm_cvtepu8_epi16(intr::_mm_cvtsi32_si128(i32::from_le_bytes(b)));
+
+    // a * b + 0x0080
+    let mut dst = intr::_mm_add_epi16(intr::_mm_mullo_epi16(a, b), e1);
+
+    // ((a >> 8) + a) >> 8
+    dst = intr::_mm_add_epi16(dst, intr::_mm_srli_epi16(dst, 8));
+    dst = intr::_mm_srli_epi16(dst, 8);
+
+    // Pack to back to u8
+    let dst = intr::_mm_packus_epi16(dst, intr::_mm_setzero_si128());
+
+    i32::to_le_bytes(intr::_mm_cvtsi128_si32(dst)) // Return first element of dst
 }

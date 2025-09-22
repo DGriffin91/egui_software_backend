@@ -36,7 +36,7 @@ impl EguiTexture {
             })
             .collect::<Vec<_>>();
         let uv_zero_val = data[0];
-        let new_texture = EguiTexture {
+        EguiTexture {
             data,
             width_extent: size[0] as i32 - 1,
             height_extent: size[1] as i32 - 1,
@@ -45,8 +45,7 @@ impl EguiTexture {
             fsize: vec2(size[0] as f32, size[1] as f32),
             options,
             uv_zero_val,
-        };
-        new_texture
+        }
     }
 
     #[allow(dead_code)]

@@ -6,7 +6,8 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 use crate::{
     BufferMutRef, EguiTexture,
     color::{
-        egui_blend, egui_blend_u8, egui_blend_u8_slice_one_src_sse41, u8x4_to_vec4, unorm_mult4x4,
+        egui_blend, egui_blend_u8, egui_blend_u8_slice_one_src_sse41,
+        egui_blend_u8_slice_one_src_tinted_fn_sse41, u8x4_to_vec4, unorm_mult4x4,
         vec4_to_u8x4_no_clamp,
     },
     math::vec4::Vec4,
@@ -230,6 +231,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 buffer,
                 clip_bounds,
                 const_tex_color,
+                const_tex_color_u8x4,
                 &colors,
                 &ss_tri,
                 alpha_blend,
@@ -315,6 +317,7 @@ fn draw_tri_uv_match_col_vary<const SUBPIX_BITS: i32>(
     buffer: &mut BufferMutRef,
     clip_bounds: [i32; 4],
     const_tex_color: Vec4,
+    const_tex_color_u8x4: [u8; 4],
     colors: &[Vec4; 3],
     ss_tri: &[Vec2; 3],
     alpha_blend: bool,
@@ -322,20 +325,41 @@ fn draw_tri_uv_match_col_vary<const SUBPIX_BITS: i32>(
     if alpha_blend {
         // Using span here is often about the same perf as raster_tri_with_colors with tiny tris but is faster
         // when there are big gradients on screen.
-        raster_tri_with_colors_span::<SUBPIX_BITS>(
-            clip_bounds,
-            ss_tri,
-            colors,
-            |start, end, y, stepper| {
-                for pixel in buffer.get_mut_span(start, end, y) {
-                    let vert_color = stepper.attr;
-                    let dst = u8x4_to_vec4(pixel);
-                    let src = vert_color * const_tex_color;
-                    *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
-                    stepper.col_step();
-                }
-            },
-        );
+
+        if is_x86_feature_detected!("sse4.1") {
+            raster_tri_with_colors_span::<SUBPIX_BITS>(
+                clip_bounds,
+                ss_tri,
+                colors,
+                |start, end, y, stepper| unsafe {
+                    // SAFETY: we first check is_x86_feature_detected!("sse4.1") outside the loop
+                    egui_blend_u8_slice_one_src_tinted_fn_sse41(
+                        const_tex_color_u8x4,
+                        || {
+                            let v = vec4_to_u8x4_no_clamp(&stepper.attr);
+                            stepper.col_step();
+                            v
+                        },
+                        buffer.get_mut_span(start, end, y),
+                    );
+                },
+            );
+        } else {
+            raster_tri_with_colors_span::<SUBPIX_BITS>(
+                clip_bounds,
+                ss_tri,
+                colors,
+                |start, end, y, stepper| {
+                    for pixel in buffer.get_mut_span(start, end, y) {
+                        let vert_color = stepper.attr;
+                        let dst = u8x4_to_vec4(pixel);
+                        let src = vert_color * const_tex_color;
+                        *pixel = vec4_to_u8x4_no_clamp(&egui_blend(&src, &dst));
+                        stepper.col_step();
+                    }
+                },
+            );
+        }
     } else {
         raster_tri_with_colors_span::<SUBPIX_BITS>(
             clip_bounds,
