@@ -103,7 +103,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         );
 
         if !allow_raster_opt {
-            draw_tri::<SUBPIX_BITS>(buffer, texture, &draw, true, true, true);
+            draw_tri::<SUBPIX_BITS>(buffer, texture, &draw, true, true, true, false);
             i += 3;
             continue;
         }
@@ -208,6 +208,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 vert_col_vary,
                 vert_uvs_vary,
                 alpha_blend,
+                sse41(),
             );
             i += 3;
         }

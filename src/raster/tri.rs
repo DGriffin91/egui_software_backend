@@ -19,6 +19,7 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
     #[dispatch(consts = [true, false])] vert_col_vary: bool,
     #[dispatch(consts = [true, false])] vert_uvs_vary: bool,
     #[dispatch(consts = [true, false])] alpha_blend: bool,
+    #[dispatch(consts = [true, false])] sse41: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
@@ -58,36 +59,59 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
             if vert_uvs_vary {
                 uv_stepper.attr += uv_stepper.step_x * start as f32;
             }
-            let ss_start = ss_min.x + start;
-            let ss_end = ss_min.x + end;
-
-            for ss_x in ss_start..ss_end {
-                let src = if vert_uvs_vary || vert_col_vary {
-                    let tex_color = if vert_uvs_vary {
-                        texture.sample_bilinear(uv_stepper.attr)
-                    } else {
-                        draw.const_tex_color_u8x4
-                    };
-                    let vert_color = if vert_col_vary {
-                        vec4_to_u8x4_no_clamp(&c_stepper.attr)
-                    } else {
-                        draw.const_vert_color_u8x4
-                    };
-                    unorm_mult4x4(vert_color, tex_color)
-                } else {
-                    draw.const_tri_color_u8x4
+            let ss_start = (ss_min.x + start) as usize;
+            let ss_end = (ss_min.x + end) as usize;
+            #[cfg(target_arch = "x86_64")]
+            if sse41 && alpha_blend && !vert_uvs_vary {
+                let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
+                use crate::color_x86_64_simd::{
+                    egui_blend_u8_slice_one_src_sse41, egui_blend_u8_slice_one_src_tinted_fn_sse41,
                 };
-                let pixel = buffer.get_mut(ss_x as usize, ss_y as usize);
-                *pixel = if alpha_blend {
-                    egui_blend_u8(src, *pixel)
-                } else {
-                    src
-                };
-                if vert_col_vary {
-                    c_stepper.col_step();
+                // SAFETY: we first check sse41() outside the loop
+                unsafe {
+                    if vert_col_vary {
+                        egui_blend_u8_slice_one_src_tinted_fn_sse41(
+                            draw.const_tex_color_u8x4,
+                            || {
+                                let v = vec4_to_u8x4_no_clamp(&c_stepper.attr);
+                                c_stepper.col_step();
+                                v
+                            },
+                            dst,
+                        );
+                    } else {
+                        egui_blend_u8_slice_one_src_sse41(draw.const_tri_color_u8x4, dst)
+                    }
                 }
-                if vert_uvs_vary {
-                    uv_stepper.col_step();
+            } else {
+                for ss_x in ss_start..ss_end {
+                    let src = if vert_uvs_vary || vert_col_vary {
+                        let tex_color = if vert_uvs_vary {
+                            texture.sample_bilinear(uv_stepper.attr)
+                        } else {
+                            draw.const_tex_color_u8x4
+                        };
+                        let vert_color = if vert_col_vary {
+                            vec4_to_u8x4_no_clamp(&c_stepper.attr)
+                        } else {
+                            draw.const_vert_color_u8x4
+                        };
+                        unorm_mult4x4(vert_color, tex_color)
+                    } else {
+                        draw.const_tri_color_u8x4
+                    };
+                    let pixel = buffer.get_mut(ss_x as usize, ss_y as usize);
+                    *pixel = if alpha_blend {
+                        egui_blend_u8(src, *pixel)
+                    } else {
+                        src
+                    };
+                    if vert_col_vary {
+                        c_stepper.col_step();
+                    }
+                    if vert_uvs_vary {
+                        uv_stepper.col_step();
+                    }
                 }
             }
         };
