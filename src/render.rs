@@ -193,64 +193,58 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 || (!vert_col_vary && tri2_colors_match));
 
         if rect {
-            if alpha_blend {
-                if vert_uvs_vary {
-                    if vert_col_vary {
-                        draw_rect::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw);
-                    } else {
-                        draw_rect::<SUBPIX_BITS, false, true, true>(buffer, texture, &draw);
-                    }
-                } else {
-                    if vert_col_vary {
-                        draw_rect::<SUBPIX_BITS, true, false, true>(buffer, texture, &draw);
-                    } else {
-                        draw_rect::<SUBPIX_BITS, false, false, true>(buffer, texture, &draw);
-                    }
+            match (vert_col_vary, vert_uvs_vary, alpha_blend) {
+                (false, false, false) => {
+                    draw_rect::<SUBPIX_BITS, false, false, false>(buffer, texture, &draw)
                 }
-            } else {
-                if vert_uvs_vary {
-                    if vert_col_vary {
-                        draw_rect::<SUBPIX_BITS, true, true, false>(buffer, texture, &draw);
-                    } else {
-                        draw_rect::<SUBPIX_BITS, false, true, false>(buffer, texture, &draw);
-                    }
-                } else {
-                    if vert_col_vary {
-                        draw_rect::<SUBPIX_BITS, true, false, false>(buffer, texture, &draw);
-                    } else {
-                        draw_rect::<SUBPIX_BITS, false, false, false>(buffer, texture, &draw);
-                    }
+                (true, false, false) => {
+                    draw_rect::<SUBPIX_BITS, true, false, false>(buffer, texture, &draw)
+                }
+                (true, true, false) => {
+                    draw_rect::<SUBPIX_BITS, true, true, false>(buffer, texture, &draw)
+                }
+                (true, false, true) => {
+                    draw_rect::<SUBPIX_BITS, true, false, true>(buffer, texture, &draw)
+                }
+                (false, true, true) => {
+                    draw_rect::<SUBPIX_BITS, false, true, true>(buffer, texture, &draw)
+                }
+                (false, true, false) => {
+                    draw_rect::<SUBPIX_BITS, false, true, false>(buffer, texture, &draw)
+                }
+                (true, true, true) => {
+                    draw_rect::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw)
+                }
+                (false, false, true) => {
+                    draw_rect::<SUBPIX_BITS, false, false, true>(buffer, texture, &draw)
                 }
             }
             i += 6;
         } else {
-            if alpha_blend {
-                if vert_uvs_vary {
-                    if vert_col_vary {
-                        draw_tri::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw);
-                    } else {
-                        draw_tri::<SUBPIX_BITS, false, true, true>(buffer, texture, &draw);
-                    }
-                } else {
-                    if vert_col_vary {
-                        draw_tri::<SUBPIX_BITS, true, false, true>(buffer, texture, &draw);
-                    } else {
-                        draw_tri::<SUBPIX_BITS, false, false, true>(buffer, texture, &draw);
-                    }
+            match (vert_col_vary, vert_uvs_vary, alpha_blend) {
+                (false, false, false) => {
+                    draw_tri::<SUBPIX_BITS, false, false, false>(buffer, texture, &draw)
                 }
-            } else {
-                if vert_uvs_vary {
-                    if vert_col_vary {
-                        draw_tri::<SUBPIX_BITS, true, true, false>(buffer, texture, &draw);
-                    } else {
-                        draw_tri::<SUBPIX_BITS, false, true, false>(buffer, texture, &draw);
-                    }
-                } else {
-                    if vert_col_vary {
-                        draw_tri::<SUBPIX_BITS, true, false, false>(buffer, texture, &draw);
-                    } else {
-                        draw_tri::<SUBPIX_BITS, false, false, false>(buffer, texture, &draw);
-                    }
+                (true, false, false) => {
+                    draw_tri::<SUBPIX_BITS, true, false, false>(buffer, texture, &draw)
+                }
+                (true, true, false) => {
+                    draw_tri::<SUBPIX_BITS, true, true, false>(buffer, texture, &draw)
+                }
+                (true, false, true) => {
+                    draw_tri::<SUBPIX_BITS, true, false, true>(buffer, texture, &draw)
+                }
+                (false, true, true) => {
+                    draw_tri::<SUBPIX_BITS, false, true, true>(buffer, texture, &draw)
+                }
+                (false, true, false) => {
+                    draw_tri::<SUBPIX_BITS, false, true, false>(buffer, texture, &draw)
+                }
+                (true, true, true) => {
+                    draw_tri::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw)
+                }
+                (false, false, true) => {
+                    draw_tri::<SUBPIX_BITS, false, false, true>(buffer, texture, &draw)
                 }
             }
             i += 3;
