@@ -14,7 +14,7 @@ pub fn draw_textured_rect(
     clip_bounds: &[i32; 4],
     tri_min: Vec2,
     tri_max: Vec2,
-    tri: &[Vertex; 3],
+    uv: &[Vec2; 3],
 ) {
     let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
     let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
@@ -34,12 +34,12 @@ pub fn draw_textured_rect(
     let max_y = max_y as usize;
 
     let mut min_uv = vec2(
-        tri[0].uv.x.min(tri[1].uv.x).min(tri[2].uv.x),
-        tri[0].uv.y.min(tri[1].uv.y).min(tri[2].uv.y),
+        uv[0].x.min(uv[1].x).min(uv[2].x),
+        uv[0].y.min(uv[1].y).min(uv[2].y),
     );
     let max_uv = vec2(
-        tri[0].uv.x.max(tri[1].uv.x).max(tri[2].uv.x),
-        tri[0].uv.y.max(tri[1].uv.y).max(tri[2].uv.y),
+        uv[0].x.max(uv[1].x).max(uv[2].x),
+        uv[0].y.max(uv[1].y).max(uv[2].y),
     );
 
     let uv_step = (max_uv - min_uv) / (tri_max - tri_min);

@@ -80,7 +80,7 @@ pub fn raster_tri_with_colors_span<const SUBPIX_BITS: i32>(
 /// Returns Some((start, end)) for the current row in the triangle. The end points are defined within the aabb of the
 /// triangle so add ss_min.x to each to get the screen space coordinate. Returns None if there is no span intersecting
 /// this row.
-fn calc_row_span(
+pub fn calc_row_span(
     stepper: &SingleStepper,
     max_cols: i64,
     step_rcp: &[StrengthReducedU64; 3],
@@ -132,7 +132,7 @@ pub fn div_ceil_sr(lhs: u64, rhs: StrengthReducedU64) -> u64 {
     if r != 0 { d + correction } else { d }
 }
 
-fn step_rcp(stepper: &SingleStepper) -> [StrengthReducedU64; 3] {
+pub fn step_rcp(stepper: &SingleStepper) -> [StrengthReducedU64; 3] {
     // max(1) is fine here since the element will already be skipped if step.x == 0
     [
         StrengthReducedU64::new(stepper.e12.step.x.abs().max(1) as u64),

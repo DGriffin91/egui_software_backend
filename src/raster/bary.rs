@@ -282,6 +282,7 @@ pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
     (b0, b1, b2)
 }
 
+#[derive(Default)]
 pub struct AttributeStepper<T>
 where
     T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
