@@ -12,6 +12,7 @@ use crate::{
         span::{calc_row_span, step_rcp},
     },
 };
+use static_dispatch::static_dispatch;
 
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     textures: &HashMap<egui::TextureId, EguiTexture>,
@@ -106,7 +107,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         );
 
         if !allow_raster_opt {
-            draw_tri::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw);
+            draw_tri::<SUBPIX_BITS>(buffer, texture, &draw, true, true, true);
             i += 3;
             continue;
         }
@@ -193,60 +194,24 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 || (!vert_col_vary && tri2_colors_match));
 
         if rect {
-            match (vert_col_vary, vert_uvs_vary, alpha_blend) {
-                (false, false, false) => {
-                    draw_rect::<SUBPIX_BITS, false, false, false>(buffer, texture, &draw)
-                }
-                (true, false, false) => {
-                    draw_rect::<SUBPIX_BITS, true, false, false>(buffer, texture, &draw)
-                }
-                (true, true, false) => {
-                    draw_rect::<SUBPIX_BITS, true, true, false>(buffer, texture, &draw)
-                }
-                (true, false, true) => {
-                    draw_rect::<SUBPIX_BITS, true, false, true>(buffer, texture, &draw)
-                }
-                (false, true, true) => {
-                    draw_rect::<SUBPIX_BITS, false, true, true>(buffer, texture, &draw)
-                }
-                (false, true, false) => {
-                    draw_rect::<SUBPIX_BITS, false, true, false>(buffer, texture, &draw)
-                }
-                (true, true, true) => {
-                    draw_rect::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw)
-                }
-                (false, false, true) => {
-                    draw_rect::<SUBPIX_BITS, false, false, true>(buffer, texture, &draw)
-                }
-            }
+            draw_rect(
+                buffer,
+                texture,
+                &draw,
+                vert_col_vary,
+                vert_uvs_vary,
+                alpha_blend,
+            );
             i += 6;
         } else {
-            match (vert_col_vary, vert_uvs_vary, alpha_blend) {
-                (false, false, false) => {
-                    draw_tri::<SUBPIX_BITS, false, false, false>(buffer, texture, &draw)
-                }
-                (true, false, false) => {
-                    draw_tri::<SUBPIX_BITS, true, false, false>(buffer, texture, &draw)
-                }
-                (true, true, false) => {
-                    draw_tri::<SUBPIX_BITS, true, true, false>(buffer, texture, &draw)
-                }
-                (true, false, true) => {
-                    draw_tri::<SUBPIX_BITS, true, false, true>(buffer, texture, &draw)
-                }
-                (false, true, true) => {
-                    draw_tri::<SUBPIX_BITS, false, true, true>(buffer, texture, &draw)
-                }
-                (false, true, false) => {
-                    draw_tri::<SUBPIX_BITS, false, true, false>(buffer, texture, &draw)
-                }
-                (true, true, true) => {
-                    draw_tri::<SUBPIX_BITS, true, true, true>(buffer, texture, &draw)
-                }
-                (false, false, true) => {
-                    draw_tri::<SUBPIX_BITS, false, false, true>(buffer, texture, &draw)
-                }
-            }
+            draw_tri::<SUBPIX_BITS>(
+                buffer,
+                texture,
+                &draw,
+                vert_col_vary,
+                vert_uvs_vary,
+                alpha_blend,
+            );
             i += 3;
         }
     }
@@ -291,15 +256,14 @@ impl DrawInfo {
     }
 }
 
-fn draw_tri<
-    const SUBPIX_BITS: i32,
-    const VERT_COL_VARY: bool,
-    const VERT_UVS_VARY: bool,
-    const ALPHA_BLEND: bool,
->(
+#[static_dispatch]
+fn draw_tri<const SUBPIX_BITS: i32>(
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
+    #[dispatch(consts = [true, false])] vert_col_vary: bool,
+    #[dispatch(consts = [true, false])] vert_uvs_vary: bool,
+    #[dispatch(consts = [true, false])] alpha_blend: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
@@ -309,13 +273,13 @@ fn draw_tri<
 
     let step_rcp = step_rcp(&stepper);
 
-    let mut c_stepper = if VERT_COL_VARY {
+    let mut c_stepper = if vert_col_vary {
         stepper.attr(&draw.colors, sp_inv_area)
     } else {
         Default::default()
     };
 
-    let mut uv_stepper = if VERT_UVS_VARY {
+    let mut uv_stepper = if vert_uvs_vary {
         stepper.attr(&draw.uv, sp_inv_area)
     } else {
         Default::default()
@@ -325,31 +289,31 @@ fn draw_tri<
 
     for ss_y in ss_min.y..=ss_max.y {
         stepper.row_start();
-        if VERT_COL_VARY {
+        if vert_col_vary {
             c_stepper.row_start();
         }
-        if VERT_UVS_VARY {
+        if vert_uvs_vary {
             uv_stepper.row_start();
         }
 
         if let Some((start, end)) = calc_row_span(&stepper, max_cols, &step_rcp) {
-            if VERT_COL_VARY {
+            if vert_col_vary {
                 c_stepper.attr += c_stepper.step_x * start as f32;
             }
-            if VERT_UVS_VARY {
+            if vert_uvs_vary {
                 uv_stepper.attr += uv_stepper.step_x * start as f32;
             }
             let ss_start = ss_min.x + start;
             let ss_end = ss_min.x + end;
 
             for ss_x in ss_start..ss_end {
-                let src = if VERT_UVS_VARY || VERT_COL_VARY {
-                    let tex_color = if VERT_UVS_VARY {
+                let src = if vert_uvs_vary || vert_col_vary {
+                    let tex_color = if vert_uvs_vary {
                         texture.sample_bilinear(uv_stepper.attr)
                     } else {
                         draw.const_tex_color_u8x4
                     };
-                    let vert_color = if VERT_COL_VARY {
+                    let vert_color = if vert_col_vary {
                         vec4_to_u8x4_no_clamp(&c_stepper.attr)
                     } else {
                         draw.const_vert_color_u8x4
@@ -359,48 +323,47 @@ fn draw_tri<
                     draw.const_tri_color_u8x4
                 };
                 let pixel = buffer.get_mut(ss_x as usize, ss_y as usize);
-                *pixel = if ALPHA_BLEND {
+                *pixel = if alpha_blend {
                     egui_blend_u8(src, *pixel)
                 } else {
                     src
                 };
-                if VERT_COL_VARY {
+                if vert_col_vary {
                     c_stepper.col_step();
                 }
-                if VERT_UVS_VARY {
+                if vert_uvs_vary {
                     uv_stepper.col_step();
                 }
             }
         };
 
         stepper.row_step();
-        if VERT_COL_VARY {
+        if vert_col_vary {
             c_stepper.row_step();
         }
-        if VERT_UVS_VARY {
+        if vert_uvs_vary {
             uv_stepper.row_step();
         }
     }
 }
 
-fn draw_rect<
-    const SUBPIX_BITS: i32,
-    const VERT_COL_VARY: bool,
-    const VERT_UVS_VARY: bool,
-    const ALPHA_BLEND: bool,
->(
+#[static_dispatch]
+fn draw_rect(
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
+    #[dispatch(consts = [true, false])] vert_col_vary: bool,
+    #[dispatch(consts = [true, false])] vert_uvs_vary: bool,
+    #[dispatch(consts = [true, false])] alpha_blend: bool,
 ) {
-    if !VERT_UVS_VARY && !VERT_COL_VARY {
+    if !vert_uvs_vary && !vert_col_vary {
         draw_solid_rect(
             buffer,
             draw.const_tri_color_u8x4,
             &draw.clip_bounds,
             draw.tri_min,
             draw.tri_max,
-            ALPHA_BLEND,
+            alpha_blend,
         );
     } else {
         draw_textured_rect(

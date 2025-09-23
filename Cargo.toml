@@ -7,6 +7,7 @@ edition = "2024"
 egui = { version = "0.32", default-features = false }
 bytemuck = { version = "1.23" }
 strength_reduce = "0.2.4"
+static_dispatch = { path = "../static_dispatch" }
 
 # Optional dependencies for automated testing: 
 egui_kittest = { version = "0.32", optional = true }
