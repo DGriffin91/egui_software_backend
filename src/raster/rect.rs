@@ -13,10 +13,10 @@ pub fn draw_rect(
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
-    #[dispatch(consts = [true, false])] vert_col_vary: bool,
-    #[dispatch(consts = [true, false])] vert_uvs_vary: bool,
-    #[dispatch(consts = [true, false])] alpha_blend: bool,
-    #[dispatch(consts = [true, false])] sse41: bool,
+    #[dispatch] vert_col_vary: bool,
+    #[dispatch] vert_uvs_vary: bool,
+    #[dispatch] alpha_blend: bool,
+    #[dispatch] sse41: bool,
 ) {
     let const_tri_color_u8x4 = draw.const_tri_color_u8x4;
     let clip_bounds = &draw.clip_bounds;

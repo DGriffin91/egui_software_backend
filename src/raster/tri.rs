@@ -16,10 +16,10 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
-    #[dispatch(consts = [true, false])] vert_col_vary: bool,
-    #[dispatch(consts = [true, false])] vert_uvs_vary: bool,
-    #[dispatch(consts = [true, false])] alpha_blend: bool,
-    #[dispatch(consts = [true, false])] sse41: bool,
+    #[dispatch] vert_col_vary: bool,
+    #[dispatch] vert_uvs_vary: bool,
+    #[dispatch] alpha_blend: bool,
+    #[dispatch] sse41: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
