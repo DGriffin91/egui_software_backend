@@ -1,5 +1,5 @@
+use constify::constify;
 use egui::{Vec2, vec2};
-use static_dispatch::static_dispatch;
 
 use crate::{
     BufferMutRef,
@@ -8,15 +8,15 @@ use crate::{
     render::DrawInfo,
 };
 
-#[static_dispatch]
+#[constify]
 pub fn draw_rect(
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
-    #[dispatch] vert_col_vary: bool,
-    #[dispatch] vert_uvs_vary: bool,
-    #[dispatch] alpha_blend: bool,
-    #[dispatch] sse41: bool,
+    #[constify] vert_col_vary: bool,
+    #[constify] vert_uvs_vary: bool,
+    #[constify] alpha_blend: bool,
+    #[constify] sse41: bool,
 ) {
     let const_tri_color_u8x4 = draw.const_tri_color_u8x4;
     let clip_bounds = &draw.clip_bounds;
@@ -63,7 +63,7 @@ pub fn draw_rect(
             }
         }
     } else {
-        // TODO could another level of static_dispatch make this cleaner (const use_nearest_sampling?)
+        // TODO could another level of constify make this cleaner (const use_nearest_sampling?)
         let mut min_uv = vec2(
             draw.uv[0].x.min(draw.uv[1].x).min(draw.uv[2].x),
             draw.uv[0].y.min(draw.uv[1].y).min(draw.uv[2].y),

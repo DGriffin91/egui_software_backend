@@ -1,4 +1,4 @@
-use static_dispatch::static_dispatch;
+use constify::constify;
 
 use crate::{
     BufferMutRef,
@@ -11,15 +11,15 @@ use crate::{
     render::DrawInfo,
 };
 
-#[static_dispatch]
+#[constify]
 pub fn draw_tri<const SUBPIX_BITS: i32>(
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
-    #[dispatch] vert_col_vary: bool,
-    #[dispatch] vert_uvs_vary: bool,
-    #[dispatch] alpha_blend: bool,
-    #[dispatch] sse41: bool,
+    #[constify] vert_col_vary: bool,
+    #[constify] vert_uvs_vary: bool,
+    #[constify] alpha_blend: bool,
+    #[constify] sse41: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
