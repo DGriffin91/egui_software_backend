@@ -10,64 +10,6 @@ use crate::math::i64vec2::{I64Vec2, i64vec2};
 
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
-pub fn raster_tri_with_uv<const SUBPIX_BITS: i32>(
-    ss_bounds: [i32; 4],
-    ss_tri: &[Vec2; 3],
-    uv: &[Vec2; 3],
-    // ss_x, ss_y, uv
-    mut raster: impl FnMut(i64, i64, Vec2),
-) {
-    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
-        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
-    else {
-        return;
-    };
-
-    let mut uv_stepper = stepper.attr(uv, sp_inv_area);
-
-    for ss_y in ss_min.y..=ss_max.y {
-        stepper.row_start();
-        uv_stepper.row_start();
-        for ss_x in ss_min.x..=ss_max.x {
-            if stepper.inside_tri_pos_area() {
-                raster(ss_x, ss_y, uv_stepper.attr);
-            }
-            stepper.col_step();
-            uv_stepper.col_step();
-        }
-        stepper.row_step();
-        uv_stepper.row_step();
-    }
-}
-
-/// ss for screen space (unit is screen pixel)
-/// sp for subpixel space (unit fraction of screen pixel)
-pub fn raster_tri_with_bary<const SUBPIX_BITS: i32>(
-    ss_bounds: [i32; 4],
-    ss_tri: &[Vec2; 3],
-    // ss_x, ss_y, w0, w1, sp_inv_area
-    mut raster: impl FnMut(i64, i64, i64, i64, f32),
-) {
-    let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
-        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
-    else {
-        return;
-    };
-
-    for ss_y in ss_min.y..=ss_max.y {
-        stepper.row_start();
-        for ss_x in ss_min.x..=ss_max.x {
-            if stepper.inside_tri_pos_area() {
-                raster(ss_x, ss_y, stepper.w0, stepper.w1, sp_inv_area);
-            }
-            stepper.col_step();
-        }
-        stepper.row_step();
-    }
-}
-
-/// ss for screen space (unit is screen pixel)
-/// sp for subpixel space (unit fraction of screen pixel)
 #[allow(unused)]
 pub fn raster_tri<const SUBPIX_BITS: i32>(
     ss_bounds: [i32; 4],
@@ -282,6 +224,7 @@ pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
     (b0, b1, b2)
 }
 
+#[derive(Default)]
 pub struct AttributeStepper<T>
 where
     T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,

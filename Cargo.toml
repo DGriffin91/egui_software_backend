@@ -7,6 +7,7 @@ edition = "2024"
 egui = { version = "0.32", default-features = false }
 bytemuck = { version = "1.23" }
 strength_reduce = "0.2.4"
+constify = { path = "constify" }
 
 # Optional dependencies for automated testing: 
 egui_kittest = { version = "0.32", optional = true }
@@ -40,8 +41,8 @@ opt-level = 3
 opt-level = 3
 
 [workspace]
-# run with `cargo run -p bevy_example`
-members = ["examples/bevy_example"]
+# run bevy example with `cargo run -p bevy_example --release`
+members = ["examples/bevy_example", "constify"]
 
 [features]
 test_render = ["dep:image", "dep:egui_kittest"]

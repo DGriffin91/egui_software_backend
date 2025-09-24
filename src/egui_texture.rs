@@ -57,12 +57,6 @@ impl EguiTexture {
         self.data[ss_x as usize + ss_y as usize * self.width]
     }
 
-    pub fn get(&self, uv: [i32; 2]) -> [u8; 4] {
-        let ss_x = uv[0].max(0).min(self.width_extent);
-        let ss_y = uv[1].max(0).min(self.height_extent);
-        self.data[ss_x as usize + ss_y as usize * self.width]
-    }
-
     pub fn sample_bilinear(&self, uv: Vec2) -> [u8; 4] {
         if uv == Vec2::ZERO {
             return self.uv_zero_val;

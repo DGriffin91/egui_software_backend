@@ -18,6 +18,7 @@ pub fn u8x4_to_vec4(v: &[u8; 4]) -> Vec4 {
 
 // https://github.com/emilk/egui/blob/226bdc4c5bbb2230fb829e01b3fcb0460e741b34/crates/egui/src/lib.rs#L162
 #[inline(always)]
+#[allow(dead_code)]
 pub fn egui_blend(src: &Vec4, dst: &Vec4) -> Vec4 {
     dst * (1.0 - src.w) + src
 }
