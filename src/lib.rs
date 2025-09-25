@@ -665,7 +665,7 @@ pub struct CachedPrimitive {
 }
 
 impl CachedPrimitive {
-    fn get_buffer_ref(&self) -> BufferRef {
+    fn get_buffer_ref(&self) -> BufferRef<'_> {
         BufferRef {
             data: &self.buffer,
             width: self.width,
