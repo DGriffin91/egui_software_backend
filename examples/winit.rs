@@ -135,6 +135,11 @@ fn main() {
                                 egui_color_test.ui(ui);
                             });
                         });
+
+                        #[cfg(feature = "raster_stats")]
+                        egui::Window::new("Stats").show(ctx, |ui| {
+                            egui_software_render.stats.render(ui);
+                        });
                     });
 
                     let clipped_primitives = app

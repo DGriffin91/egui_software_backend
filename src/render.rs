@@ -18,6 +18,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     vert_offset: Vec2,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
+    #[cfg(feature = "raster_stats")] stats: &mut crate::stats::RasterStats,
 ) {
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
         return;
@@ -190,6 +191,15 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 || (!vert_col_vary && tri2_colors_match));
 
         if rect {
+            #[cfg(feature = "raster_stats")]
+            {
+                stats.rects += 1;
+                stats.rect_add_width((fsize.x as u32).max(1));
+                stats.rect_add_height((fsize.y as u32).max(1));
+                stats.rect_vert_col_vary += vert_col_vary as u32;
+                stats.rect_vert_uvs_vary += vert_uvs_vary as u32;
+                stats.rect_alpha_blend += alpha_blend as u32;
+            }
             draw_rect(
                 buffer,
                 texture,
@@ -201,6 +211,15 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             );
             i += 6;
         } else {
+            #[cfg(feature = "raster_stats")]
+            {
+                stats.tris += 1;
+                stats.tri_add_width((fsize.x as u32).max(1));
+                stats.tri_add_height((fsize.y as u32).max(1));
+                stats.tri_vert_col_vary += vert_col_vary as u32;
+                stats.tri_vert_uvs_vary += vert_uvs_vary as u32;
+                stats.tri_alpha_blend += alpha_blend as u32;
+            }
             draw_tri::<SUBPIX_BITS>(
                 buffer,
                 texture,

@@ -2,6 +2,8 @@ use std::{borrow::Cow, collections::HashMap, ops::Range};
 
 use egui::{Color32, Pos2, Vec2, vec2};
 
+#[cfg(feature = "raster_stats")]
+use crate::stats::RasterStats;
 use crate::{
     color::{egui_blend_u8_fast, swizzle_rgba_bgra},
     egui_texture::EguiTexture,
@@ -17,6 +19,8 @@ pub(crate) mod hash;
 pub(crate) mod math;
 pub(crate) mod raster;
 pub(crate) mod render;
+#[cfg(feature = "raster_stats")]
+pub mod stats;
 #[cfg(feature = "test_render")]
 pub mod test_render;
 
@@ -50,6 +54,8 @@ pub struct EguiSoftwareRender {
     redraw_everything_this_frame: bool,
     convert_tris_to_rects: bool,
     allow_raster_opt: bool,
+    #[cfg(feature = "raster_stats")]
+    pub stats: RasterStats,
 }
 
 impl EguiSoftwareRender {
@@ -70,6 +76,8 @@ impl EguiSoftwareRender {
             redraw_everything_this_frame: Default::default(),
             convert_tris_to_rects: true,
             allow_raster_opt: true,
+            #[cfg(feature = "raster_stats")]
+            stats: Default::default(),
         }
     }
 
@@ -104,6 +112,9 @@ impl EguiSoftwareRender {
         pixels_per_point: f32,
     ) {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
+
+        #[cfg(feature = "raster_stats")]
+        self.stats.clear();
 
         assert!(width > 0);
         assert!(height > 0);
@@ -152,6 +163,8 @@ impl EguiSoftwareRender {
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) {
+        #[cfg(feature = "raster_stats")]
+        self.stats.clear();
         self.set_textures(textures_delta);
         self.target_size = vec2(
             direct_draw_buffer.width as f32,
@@ -198,6 +211,8 @@ impl EguiSoftwareRender {
                     Vec2::ZERO,
                     self.allow_raster_opt,
                     self.convert_tris_to_rects,
+                    #[cfg(feature = "raster_stats")]
+                    &mut self.stats,
                 );
             } else {
                 draw_egui_mesh::<8>(
@@ -208,6 +223,8 @@ impl EguiSoftwareRender {
                     Vec2::ZERO,
                     self.allow_raster_opt,
                     self.convert_tris_to_rects,
+                    #[cfg(feature = "raster_stats")]
+                    &mut self.stats,
                 );
             }
         }
@@ -384,6 +401,8 @@ impl EguiSoftwareRender {
                         offset,
                         self.allow_raster_opt,
                         self.convert_tris_to_rects,
+                        #[cfg(feature = "raster_stats")]
+                        &mut self.stats,
                     );
                 } else {
                     draw_egui_mesh::<8>(
@@ -394,6 +413,8 @@ impl EguiSoftwareRender {
                         offset,
                         self.allow_raster_opt,
                         self.convert_tris_to_rects,
+                        #[cfg(feature = "raster_stats")]
+                        &mut self.stats,
                     );
                 }
                 self.prims_updated_this_frame += 1;
