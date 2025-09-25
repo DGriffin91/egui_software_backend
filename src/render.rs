@@ -119,7 +119,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
         if !vert_col_vary {
             draw.const_vert_color = draw.colors[0];
-            draw.const_vert_color_u8x4 = vec4_to_u8x4_no_clamp(&draw.const_vert_color);
+            draw.const_vert_color_u8x4 = color0_u8x4;
         }
 
         if !vert_uvs_vary && !vert_col_vary {
