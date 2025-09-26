@@ -186,9 +186,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             }
         }
 
-        let rect = found_rect
-            && ((!vert_uvs_vary && !vert_col_vary && tri2_uvs_match && tri2_colors_match)
-                || (!vert_col_vary && tri2_colors_match));
+        let rect = found_rect && !vert_col_vary && tri2_colors_match && tri2_uvs_match;
 
         #[cfg(feature = "raster_stats")]
         stats.start_raster();
