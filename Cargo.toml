@@ -14,10 +14,7 @@ egui_kittest = { version = "0.32", optional = true }
 image = { version = "0.25", optional = true }
 
 [dev-dependencies]
-egui_software_backend = { path = ".", features = [
-    "test_render",
-    "raster_stats",
-] }
+egui_software_backend = { path = ".", features = ["test_render"] }
 
 egui = { version = "0.32", features = ["default_fonts"] }
 eframe = "0.32"

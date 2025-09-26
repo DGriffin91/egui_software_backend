@@ -190,16 +190,9 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             && ((!vert_uvs_vary && !vert_col_vary && tri2_uvs_match && tri2_colors_match)
                 || (!vert_col_vary && tri2_colors_match));
 
+        #[cfg(feature = "raster_stats")]
+        stats.start_raster();
         if rect {
-            #[cfg(feature = "raster_stats")]
-            {
-                stats.rects += 1;
-                stats.rect_add_width((fsize.x as u32).max(1));
-                stats.rect_add_height((fsize.y as u32).max(1));
-                stats.rect_vert_col_vary += vert_col_vary as u32;
-                stats.rect_vert_uvs_vary += vert_uvs_vary as u32;
-                stats.rect_alpha_blend += alpha_blend as u32;
-            }
             draw_rect(
                 buffer,
                 texture,
@@ -209,17 +202,10 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 alpha_blend,
                 sse41(),
             );
+            #[cfg(feature = "raster_stats")]
+            stats.finish_rect(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 6;
         } else {
-            #[cfg(feature = "raster_stats")]
-            {
-                stats.tris += 1;
-                stats.tri_add_width((fsize.x as u32).max(1));
-                stats.tri_add_height((fsize.y as u32).max(1));
-                stats.tri_vert_col_vary += vert_col_vary as u32;
-                stats.tri_vert_uvs_vary += vert_uvs_vary as u32;
-                stats.tri_alpha_blend += alpha_blend as u32;
-            }
             draw_tri::<SUBPIX_BITS>(
                 buffer,
                 texture,
@@ -229,6 +215,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 alpha_blend,
                 sse41(),
             );
+            #[cfg(feature = "raster_stats")]
+            stats.finish_tri(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 3;
         }
     }
