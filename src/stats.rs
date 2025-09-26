@@ -2,12 +2,19 @@ use std::{collections::HashMap, time::Instant};
 
 use egui::{Ui, Vec2, Vec2b};
 
+#[derive(Clone, Copy)]
+pub struct Stat {
+    pub count: u32,
+    pub time: f32,
+    pub sum_area: f32,
+}
+
 pub struct RasterStats {
     // <size, (count, duration in seconds)>
-    pub tri_width_buckets: HashMap<u32, (u32, f32)>,
-    pub tri_height_buckets: HashMap<u32, (u32, f32)>,
-    pub rect_width_buckets: HashMap<u32, (u32, f32)>,
-    pub rect_height_buckets: HashMap<u32, (u32, f32)>,
+    pub tri_width_buckets: HashMap<u32, Stat>,
+    pub tri_height_buckets: HashMap<u32, Stat>,
+    pub rect_width_buckets: HashMap<u32, Stat>,
+    pub rect_height_buckets: HashMap<u32, Stat>,
     pub tri_vert_col_vary: u32,
     pub tri_vert_uvs_vary: u32,
     pub tri_alpha_blend: u32,
@@ -39,12 +46,20 @@ impl Default for RasterStats {
     }
 }
 
-fn insert_or_increment(size: u32, elapsed: f32, map: &mut HashMap<u32, (u32, f32)>) {
-    if let Some((count, duration)) = map.get_mut(&size) {
-        *count += 1;
-        *duration += elapsed;
+fn insert_or_increment(long_side_size: u32, elapsed: f32, area: f32, map: &mut HashMap<u32, Stat>) {
+    if let Some(stat) = map.get_mut(&long_side_size) {
+        stat.count += 1;
+        stat.time += elapsed;
+        stat.sum_area += area;
     } else {
-        map.insert(size, (1, elapsed));
+        map.insert(
+            long_side_size,
+            Stat {
+                count: 1,
+                time: elapsed,
+                sum_area: area,
+            },
+        );
     }
 }
 
@@ -66,14 +81,17 @@ impl RasterStats {
     ) {
         let elapsed = self.start.elapsed().as_secs_f32();
         self.rects += 1;
+        let tri_area = (fsize.x * fsize.y) * 0.5;
         insert_or_increment(
             (fsize.x as u32).max(1),
             elapsed,
+            tri_area,
             &mut self.rect_width_buckets,
         );
         insert_or_increment(
             (fsize.y as u32).max(1),
             elapsed,
+            tri_area,
             &mut self.rect_height_buckets,
         );
         self.rect_vert_col_vary += vert_col_vary as u32;
@@ -90,14 +108,17 @@ impl RasterStats {
     ) {
         let elapsed = self.start.elapsed().as_secs_f32();
         self.tris += 1;
+        let rect_area = fsize.x * fsize.y;
         insert_or_increment(
             (fsize.x as u32).max(1),
             elapsed,
+            rect_area,
             &mut self.tri_width_buckets,
         );
         insert_or_increment(
             (fsize.y as u32).max(1),
             elapsed,
+            rect_area,
             &mut self.tri_height_buckets,
         );
         self.tri_vert_col_vary += vert_col_vary as u32;
@@ -108,7 +129,7 @@ impl RasterStats {
     pub fn render(&self, ui: &mut Ui) {
         egui::ScrollArea::both()
             .auto_shrink(Vec2b::new(false, false))
-            .min_scrolled_width(650.0)
+            .min_scrolled_width(900.0)
             .show(ui, |ui| {
                 egui::Grid::new("stats_grid").striped(true).show(ui, |ui| {
                     ui.heading("");
@@ -141,9 +162,9 @@ impl RasterStats {
                 ui.label("");
                 ui.end_row();
 
-                fn collect_and_sort(map: &HashMap<u32, (u32, f32)>) -> Vec<(u32, (u32, f32))> {
-                    let mut v: Vec<_> = map.iter().map(|(&k, &v)| (k, v)).collect();
-                    v.sort_by_key(|&(_, (v, _))| std::cmp::Reverse(v));
+                fn collect_and_sort(map: &HashMap<u32, Stat>) -> Vec<(u32, Stat)> {
+                    let mut v: Vec<_> = map.iter().map(|(&k, &s)| (k, s)).collect();
+                    v.sort_by_key(|&(_, s)| std::cmp::Reverse((s.time * 1000000.0) as u32)); // Seconds to microseconds
                     v
                 }
 
@@ -165,6 +186,7 @@ impl RasterStats {
                     ui.heading("");
                     ui.heading("");
                     ui.heading("");
+                    ui.heading("");
                     ui.heading(" ");
                     ui.heading("Rects");
                     ui.heading(format!("{}", self.rects));
@@ -172,28 +194,41 @@ impl RasterStats {
                     ui.heading("");
                     ui.heading("");
                     ui.heading("");
-                    ui.end_row();
-                    ui.heading("W");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading("H");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading(" ");
-                    ui.heading("W");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading("H");
-                    ui.heading("Qty");
-                    ui.heading("μs");
+                    ui.heading("");
                     ui.end_row();
 
-                    fn row(ui: &mut Ui, i: usize, v: &Vec<(u32, (u32, f32))>) {
-                        if let Some((size, (count, t))) = v.get(i) {
+                    ui.heading("W");
+                    ui.heading("Qty");
+                    ui.heading("μs");
+                    ui.heading("area");
+
+                    ui.heading("H");
+                    ui.heading("Qty");
+                    ui.heading("μs");
+                    ui.heading("area");
+
+                    ui.heading(" ");
+
+                    ui.heading("W");
+                    ui.heading("Qty");
+                    ui.heading("μs");
+                    ui.heading("area");
+
+                    ui.heading("H");
+                    ui.heading("Qty");
+                    ui.heading("μs");
+                    ui.heading("area");
+                    ui.end_row();
+
+                    fn row(ui: &mut Ui, i: usize, v: &[(u32, Stat)]) {
+                        if let Some((size, stat)) = v.get(i) {
                             ui.label(format!("{size}"));
-                            ui.label(format!("{count}"));
-                            ui.label(format!("{:.0}", t * 1000000.0)); // Seconds to microseconds
+                            ui.label(format!("{}", stat.count));
+                            ui.label(format!("{:.0}", stat.time * 1000000.0)); // Seconds to microseconds
+                            ui.label(format!("{}", stat.sum_area as u32));
                         } else {
+                            ui.label("");
+                            ui.label("");
                             ui.label("");
                             ui.label("");
                         }
