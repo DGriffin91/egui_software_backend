@@ -10,20 +10,19 @@ pub struct Stat {
 }
 
 pub struct RasterStats {
-    // <size, (count, duration in seconds)>
-    pub tri_width_buckets: HashMap<u32, Stat>,
-    pub tri_height_buckets: HashMap<u32, Stat>,
-    pub rect_width_buckets: HashMap<u32, Stat>,
-    pub rect_height_buckets: HashMap<u32, Stat>,
-    pub tri_vert_col_vary: u32,
-    pub tri_vert_uvs_vary: u32,
-    pub tri_alpha_blend: u32,
-    pub rect_vert_col_vary: u32,
-    pub rect_vert_uvs_vary: u32,
-    pub rect_alpha_blend: u32,
-    pub rects: u32,
-    pub tris: u32,
-    pub start: Instant,
+    pub tri_width_buckets: HashMap<u32, Stat>, // Key is tri width
+    pub tri_height_buckets: HashMap<u32, Stat>, // Key is tri height
+    pub rect_width_buckets: HashMap<u32, Stat>, // Key is rect width
+    pub rect_height_buckets: HashMap<u32, Stat>, // Key is rect height
+    pub tri_vert_col_vary: u32,                // Count of tris where the vertex colors varied
+    pub tri_vert_uvs_vary: u32,                // Count of tris where the vertex uvs varied
+    pub tri_alpha_blend: u32,                  // Count of tris that required alpha blending
+    pub rect_vert_col_vary: u32,               // Count of rects where the vertex colors varied
+    pub rect_vert_uvs_vary: u32,               // Count of rects where the vertex uvs varied
+    pub rect_alpha_blend: u32,                 // Count of rects that required alpha blending
+    pub tris: u32,                             // Total tris drawn
+    pub rects: u32,                            // Total rects drawn
+    pub start: Instant,                        // Time just before latest rasterization
 }
 
 impl Default for RasterStats {
