@@ -45,5 +45,7 @@ opt-level = 3
 members = ["examples/bevy_example", "constify"]
 
 [features]
+#default = ["raster_stats"]
+
 raster_stats = []
 test_render = ["dep:image", "dep:egui_kittest"]

@@ -182,42 +182,20 @@ impl RasterStats {
                 egui::Grid::new("stats_grid2").striped(true).show(ui, |ui| {
                     ui.heading("Tris");
                     ui.heading(format!("{}", self.tris));
-                    ui.heading("");
-                    ui.heading("");
-                    ui.heading("");
-                    ui.heading("");
-                    ui.heading("");
+                    (0..=5).for_each(|_| _ = ui.heading(""));
                     ui.heading(" ");
                     ui.heading("Rects");
                     ui.heading(format!("{}", self.rects));
-                    ui.heading("");
-                    ui.heading("");
-                    ui.heading("");
-                    ui.heading("");
-                    ui.heading("");
+                    (0..=5).for_each(|_| _ = ui.heading(""));
                     ui.end_row();
 
-                    ui.heading("W");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading("area");
+                    let headers = ["W", "Qty", "μs", "area"];
 
-                    ui.heading("H");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading("area");
-
+                    headers.iter().for_each(|s| _ = ui.heading(*s));
+                    headers.iter().for_each(|s| _ = ui.heading(*s));
                     ui.heading(" ");
-
-                    ui.heading("W");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading("area");
-
-                    ui.heading("H");
-                    ui.heading("Qty");
-                    ui.heading("μs");
-                    ui.heading("area");
+                    headers.iter().for_each(|s| _ = ui.heading(*s));
+                    headers.iter().for_each(|s| _ = ui.heading(*s));
                     ui.end_row();
 
                     fn row(ui: &mut Ui, i: usize, v: &[(u32, Stat)]) {
