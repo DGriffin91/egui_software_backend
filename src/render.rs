@@ -109,8 +109,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             continue;
         }
 
-        let vert_uvs_vary = !(draw.uv[0] == draw.uv[1] && draw.uv[0] == draw.uv[2]);
-        let vert_col_vary = !(color0_u8x4 == color1_u8x4 && color0_u8x4 == color2_u8x4);
+        let mut vert_uvs_vary = !(draw.uv[0] == draw.uv[1] && draw.uv[0] == draw.uv[2]);
+        let mut vert_col_vary = !(color0_u8x4 == color1_u8x4 && color0_u8x4 == color2_u8x4);
         let mut alpha_blend = true;
 
         if !vert_uvs_vary {
@@ -141,8 +141,6 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             alpha_blend = false;
         }
 
-        let mut tri2_uvs_match = false;
-        let mut tri2_colors_match = false;
         let find_rects = convert_tris_to_rects && !vert_col_vary && i + 6 < indices.len();
         let mut found_rect = false;
 
@@ -170,15 +168,17 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                     }
 
                     if !vert_uvs_vary {
-                        tri2_uvs_match = tri[0].uv == tri2[0].uv
+                        let tri2_uvs_match = tri[0].uv == tri2[0].uv
                             && tri[0].uv == tri2[1].uv
                             && tri[0].uv == tri2[2].uv;
+                        vert_uvs_vary = vert_uvs_vary && tri2_uvs_match;
                     }
 
                     if !vert_col_vary {
-                        tri2_colors_match = tri[0].color == tri2[0].color
+                        let tri2_colors_match = tri[0].color == tri2[0].color
                             && tri[0].color == tri2[1].color
                             && tri[0].color == tri2[2].color;
+                        vert_col_vary = vert_col_vary && tri2_colors_match;
                     }
                 } else {
                     found_rect = false;
@@ -186,7 +186,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
             }
         }
 
-        let rect = found_rect && !vert_col_vary && tri2_colors_match && tri2_uvs_match;
+        let rect = found_rect && !vert_col_vary; // vert_col_vary not supported by rect render
 
         #[cfg(feature = "raster_stats")]
         stats.start_raster();
