@@ -1,7 +1,5 @@
 use std::arch::x86_64::*;
 
-use crate::color::unorm_mult4x4;
-
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
 pub unsafe fn egui_blend_u8_sse41(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
@@ -232,7 +230,7 @@ pub unsafe fn egui_blend_u8_slice_tinted_sse41(
 
         // Tail: handle the last pixel (if any) in scalar
         if i < n {
-            dst[i] = egui_blend_u8_sse41(unorm_mult4x4(src[i], tint), dst[i]);
+            dst[i] = egui_blend_u8_sse41(unorm_mult4x4_sse41(src[i], tint), dst[i]);
         }
     }
 }
@@ -308,7 +306,7 @@ pub unsafe fn egui_blend_u8_slice_one_src_tinted_fn_sse41(
 
         // Tail: handle the last pixel (if any) in scalar
         if i < n {
-            dst[i] = egui_blend_u8_sse41(unorm_mult4x4(src, tint_fn()), dst[i]);
+            dst[i] = egui_blend_u8_sse41(unorm_mult4x4_sse41(src, tint_fn()), dst[i]);
         }
     }
 }
