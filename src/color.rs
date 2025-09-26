@@ -1,8 +1,8 @@
 use crate::math::vec4::{Vec4, vec4};
 
 #[inline(always)]
-pub fn vec4_to_u8x4_no_clamp(v: &Vec4) -> [u8; 4] {
-    let v = v * 255.0 + 0.5;
+pub fn vec4_to_u8x4(v: &Vec4) -> [u8; 4] {
+    let v = v.clamp(Vec4::ZERO, Vec4::ONE) * 255.0 + 0.5;
     [v.x as u8, v.y as u8, v.z as u8, v.w as u8]
 }
 
@@ -60,31 +60,6 @@ pub fn egui_blend_u8(src: [u8; 4], mut dst: [u8; 4]) -> [u8; 4] {
         dst[2].saturating_add(src[2]),
         dst[3].saturating_add(src[3]),
     ]
-}
-
-// https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
-/// colors in egui aren't always actually premultiplied which can result in overflow in this faster version
-#[inline(always)]
-#[allow(dead_code)]
-pub fn egui_blend_u8_fast(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
-    let a = src[3];
-    if a == 255 {
-        return src;
-    }
-
-    let alpha = a as u64;
-    let alpha_compl = 0xFF ^ alpha;
-    let src = as_color16(u32::from_le_bytes(src));
-    let dst = as_color16(u32::from_le_bytes(dst));
-
-    let res16 = src * 0xFF + dst * alpha_compl + 0x0080008000800080;
-    let res8 = res16 + ((res16 >> 8) & 0x00FF00FF00FF00FF);
-
-    // transform the result back to 32 bytes
-    let res = (res8 >> 8) & 0x00FF00FF00FF00FF;
-    let res = (res | (res >> 8)) & 0x0000FFFF0000FFFF;
-    let res = res | (res >> 16);
-    u32::to_le_bytes((res & 0x00000000FFFFFFFF) as u32)
 }
 
 #[inline(always)]

@@ -4,7 +4,7 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
-    color::{u8x4_to_vec4, vec4_to_u8x4_no_clamp},
+    color::{u8x4_to_vec4, vec4_to_u8x4},
     math::vec4::Vec4,
     raster::{rect::draw_rect, tri::draw_tri},
     sse41,
@@ -125,7 +125,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
         if !vert_uvs_vary && !vert_col_vary {
             let const_tri_color = draw.const_vert_color * draw.const_tex_color;
-            draw.const_tri_color_u8x4 = vec4_to_u8x4_no_clamp(&const_tri_color);
+            draw.const_tri_color_u8x4 = vec4_to_u8x4(&const_tri_color);
             if draw.const_tri_color_u8x4[3] == 255 {
                 alpha_blend = false;
             }

@@ -2,7 +2,7 @@ use egui::{Color32, TextureFilter, TextureOptions, Vec2, vec2};
 
 use crate::{
     ColorFieldOrder,
-    color::{swizzle_rgba_bgra, u8x4_to_vec4, vec4_to_u8x4_no_clamp},
+    color::{swizzle_rgba_bgra, u8x4_to_vec4, vec4_to_u8x4},
 };
 
 pub struct EguiTexture {
@@ -113,6 +113,6 @@ impl EguiTexture {
         let w01 = (1.0 - fx) * fy;
         let w11 = fx * fy;
 
-        vec4_to_u8x4_no_clamp(&(v00 * w00 + v01 * w01 + v10 * w10 + v11 * w11))
+        vec4_to_u8x4(&(v00 * w00 + v01 * w01 + v10 * w10 + v11 * w11))
     }
 }

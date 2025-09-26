@@ -2,7 +2,7 @@ use constify::constify;
 
 use crate::{
     BufferMutRef,
-    color::{egui_blend_u8, unorm_mult4x4, vec4_to_u8x4_no_clamp},
+    color::{egui_blend_u8, unorm_mult4x4, vec4_to_u8x4},
     egui_texture::EguiTexture,
     raster::{
         bary::stepper_from_ss_tri_backface_cull,
@@ -73,7 +73,7 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
                         egui_blend_u8_slice_one_src_tinted_fn_sse41(
                             draw.const_tex_color_u8x4,
                             || {
-                                let v = vec4_to_u8x4_no_clamp(&vert_col_stepper.attr);
+                                let v = vec4_to_u8x4(&vert_col_stepper.attr);
                                 vert_col_stepper.col_step();
                                 v
                             },
@@ -92,7 +92,7 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
                             draw.const_tex_color_u8x4
                         };
                         let vert_color = if vert_col_vary {
-                            vec4_to_u8x4_no_clamp(&vert_col_stepper.attr)
+                            vec4_to_u8x4(&vert_col_stepper.attr)
                         } else {
                             draw.const_vert_color_u8x4
                         };
