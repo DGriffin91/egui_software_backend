@@ -54,6 +54,7 @@ pub struct EguiSoftwareRender {
     redraw_everything_this_frame: bool,
     convert_tris_to_rects: bool,
     allow_raster_opt: bool,
+    cacheing_enabled: bool,
     #[cfg(feature = "raster_stats")]
     pub stats: RasterStats,
 }
@@ -76,6 +77,7 @@ impl EguiSoftwareRender {
             redraw_everything_this_frame: Default::default(),
             convert_tris_to_rects: true,
             allow_raster_opt: true,
+            cacheing_enabled: true,
             #[cfg(feature = "raster_stats")]
             stats: Default::default(),
         }
@@ -95,7 +97,45 @@ impl EguiSoftwareRender {
         self
     }
 
-    /// Renders the given paint jobs to a buffer.
+    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
+    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
+    /// Rendering without caching is much slower and primarily intended for testing.
+    pub fn with_caching(mut self, set: bool) -> Self {
+        self.cacheing_enabled = set;
+        self
+    }
+
+    /// Renders the given paint jobs to buffer_ref. Alternatively, when using caching
+    /// EguiSoftwareRender::render_to_canvas() and subsequently EguiSoftwareRender::blit_canvas_to_buffer() can be run
+    /// separately so that the primary rendering in render_to_canvas() can happen without a lock on the frame buffer.
+    ///  
+    ///
+    /// # Arguments
+    /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.
+    /// * `textures_delta` - The change in egui textures since last frame
+    /// * `pixels_per_point` - The number of physical pixels for each logical point.
+    pub fn render(
+        &mut self,
+        buffer_ref: &mut BufferMutRef,
+        paint_jobs: &[egui::ClippedPrimitive],
+        textures_delta: &egui::TexturesDelta,
+        pixels_per_point: f32,
+    ) {
+        if self.cacheing_enabled {
+            self.render_to_canvas(
+                buffer_ref.width,
+                buffer_ref.height,
+                paint_jobs,
+                textures_delta,
+                pixels_per_point,
+            );
+            self.blit_canvas_to_buffer(buffer_ref);
+        } else {
+            self.render_direct(buffer_ref, paint_jobs, textures_delta, pixels_per_point);
+        }
+    }
+
+    /// Renders the given paint jobs to an intermediate canvas.
     ///
     /// # Arguments
     /// * `width` - The width of the output in pixels. Must match final output buffer dimensions.
@@ -155,8 +195,63 @@ impl EguiSoftwareRender {
         self.free_textures(textures_delta);
     }
 
+    /// Draw canvas alpha over given buffer.
+    /// Only run after EguiSoftwareRender::render_to_canvas(), or use EguiSoftwareRender::render() to run both.
+    /// Only writes tile regions that contain pixels that are not fully transparent.
+    pub fn blit_canvas_to_buffer(&mut self, buffer: &mut BufferMutRef) {
+        // Simple tile-less version
+        // buffer.data.iter_mut().zip(self.canvas.iter()).for_each(|(pixel, src)| {
+        //     *pixel = egui_blend_u8(*src, *pixel);
+        // });
+
+        if self.canvas.data.is_empty() {
+            panic!(
+                "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render_to_canvas()"
+            )
+        }
+
+        let width = self.canvas.width;
+        let height = self.canvas.height;
+        assert_eq!(self.canvas.data.len(), width * height);
+        assert_eq!(buffer.data.len(), width * height);
+
+        let tiles_x = self.tiles_dim[0];
+
+        for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
+            if mask & Self::OCCUPIED_TILE_MASK == 0 {
+                continue;
+            }
+
+            let tile_x = tile_idx % tiles_x;
+            let tile_y = tile_idx / tiles_x;
+
+            let x_start = tile_x * TILE_SIZE;
+            let y_start = tile_y * TILE_SIZE;
+            let x_end = (x_start + TILE_SIZE).min(width);
+            let y_end = (y_start + TILE_SIZE).min(height);
+
+            if sse41() {
+                #[cfg(target_arch = "x86_64")]
+                for y in y_start..y_end {
+                    let src_row = self.canvas.get_span(x_start, x_end, y);
+                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
+                    // SAFETY: we first check sse41() outside the loop
+                    unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
+                }
+            } else {
+                for y in y_start..y_end {
+                    let src_row = self.canvas.get_span(x_start, x_end, y);
+                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
+                    for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
+                        *dst = egui_blend_u8(src, *dst);
+                    }
+                }
+            }
+        }
+    }
+
     /// Render directly into buffer without cache. This is much slower and mainly intended for testing.
-    pub fn render_direct(
+    fn render_direct(
         &mut self,
         direct_draw_buffer: &mut BufferMutRef,
         paint_jobs: &[egui::ClippedPrimitive],
@@ -515,61 +610,6 @@ impl EguiSoftwareRender {
     fn clear_unused_cached_prims(&mut self) {
         self.cached_primitives
             .retain(|_hash, prim| prim.seen_this_frame);
-    }
-
-    /// Draw canvas alpha over given buffer.
-    /// Do not run if rending with Some(direct_draw_buffer) in EguiSoftwareRender::render()
-    /// Only writes tile regions that contain pixels that are not fully transparent.
-    pub fn blit_canvas_to_buffer(&mut self, buffer: &mut BufferMutRef) {
-        // Simple tile-less version
-        // buffer.data.iter_mut().zip(self.canvas.iter()).for_each(|(pixel, src)| {
-        //     *pixel = egui_blend_u8(*src, *pixel);
-        // });
-
-        if self.canvas.data.is_empty() {
-            panic!(
-                "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render_to_canvas()"
-            )
-        }
-
-        let width = self.canvas.width;
-        let height = self.canvas.height;
-        assert_eq!(self.canvas.data.len(), width * height);
-        assert_eq!(buffer.data.len(), width * height);
-
-        let tiles_x = self.tiles_dim[0];
-
-        for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
-            if mask & Self::OCCUPIED_TILE_MASK == 0 {
-                continue;
-            }
-
-            let tile_x = tile_idx % tiles_x;
-            let tile_y = tile_idx / tiles_x;
-
-            let x_start = tile_x * TILE_SIZE;
-            let y_start = tile_y * TILE_SIZE;
-            let x_end = (x_start + TILE_SIZE).min(width);
-            let y_end = (y_start + TILE_SIZE).min(height);
-
-            if sse41() {
-                #[cfg(target_arch = "x86_64")]
-                for y in y_start..y_end {
-                    let src_row = self.canvas.get_span(x_start, x_end, y);
-                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    // SAFETY: we first check sse41() outside the loop
-                    unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
-                }
-            } else {
-                for y in y_start..y_end {
-                    let src_row = self.canvas.get_span(x_start, x_end, y);
-                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                        *dst = egui_blend_u8(src, *dst);
-                    }
-                }
-            }
-        }
     }
 
     fn free_textures(&mut self, textures_delta: &egui::TexturesDelta) {

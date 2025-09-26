@@ -46,7 +46,8 @@ fn main() {
     let mut egui_color_test = ColorTest::default();
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA)
         .with_allow_raster_opt(!args.no_opt)
-        .with_convert_tris_to_rects(!args.no_rect);
+        .with_convert_tris_to_rects(!args.no_rect)
+        .with_caching(!args.direct);
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -155,23 +156,12 @@ fn main() {
                         height as usize,
                     );
 
-                    if args.direct {
-                        egui_software_render.render_direct(
-                            buffer_ref,
-                            &clipped_primitives,
-                            &full_output.textures_delta,
-                            full_output.pixels_per_point,
-                        );
-                    } else {
-                        egui_software_render.render_to_canvas(
-                            width as usize,
-                            height as usize,
-                            &clipped_primitives,
-                            &full_output.textures_delta,
-                            full_output.pixels_per_point,
-                        );
-                        egui_software_render.blit_canvas_to_buffer(buffer_ref);
-                    }
+                    egui_software_render.render(
+                        buffer_ref,
+                        &clipped_primitives,
+                        &full_output.textures_delta,
+                        full_output.pixels_per_point,
+                    );
 
                     buffer.present().unwrap();
 

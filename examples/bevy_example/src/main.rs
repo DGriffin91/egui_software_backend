@@ -81,7 +81,8 @@ fn main() {
             .insert_resource(EguiSoftwareRenderResource(
                 EguiSoftwareRender::new(ColorFieldOrder::BGRA)
                     .with_allow_raster_opt(!args.no_opt)
-                    .with_convert_tris_to_rects(!args.no_rect),
+                    .with_convert_tris_to_rects(!args.no_rect)
+                    .with_caching(!args.direct),
             ))
             .add_systems(
                 PostUpdate,
@@ -124,22 +125,11 @@ fn egui_render(
     let mut buffer_ref = frame_buffer.as_mut();
     for (mut context, render_output) in contexts.iter_mut() {
         let pixels_per_point = context.get_mut().pixels_per_point();
-        if args.direct {
-            egui_software_render.render_direct(
-                &mut buffer_ref,
-                &render_output.paint_jobs,
-                &render_output.textures_delta,
-                pixels_per_point,
-            );
-        } else {
-            egui_software_render.render_to_canvas(
-                buffer_ref.width,
-                buffer_ref.height,
-                &render_output.paint_jobs,
-                &render_output.textures_delta,
-                pixels_per_point,
-            );
-            egui_software_render.blit_canvas_to_buffer(&mut buffer_ref);
-        }
+        egui_software_render.render(
+            &mut buffer_ref,
+            &render_output.paint_jobs,
+            &render_output.textures_delta,
+            pixels_per_point,
+        );
     }
 }
