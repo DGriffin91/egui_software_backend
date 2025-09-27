@@ -24,9 +24,9 @@ pub fn raster_tri<const SUBPIX_BITS: i32>(
         return;
     };
 
-    for ss_y in ss_min.y..=ss_max.y {
+    for ss_y in ss_min.y..ss_max.y {
         stepper.row_start();
-        for ss_x in ss_min.x..=ss_max.x {
+        for ss_x in ss_min.x..ss_max.x {
             if stepper.inside_tri_pos_area() {
                 raster(ss_x, ss_y);
             }
@@ -61,10 +61,10 @@ pub fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
 
     let ss_min = ((sp_min - subpix_half) >> subpix_bits)
         .max(ss_bounds[0])
-        .min(ss_bounds[1] - 1);
+        .min(ss_bounds[1]);
     let ss_max = ((sp_max + subpix_half) >> subpix_bits)
         .max(ss_bounds[0])
-        .min(ss_bounds[1] - 1);
+        .min(ss_bounds[1]);
 
     let sp_min_p = ss_min * subpix + subpix_half;
     let ss_size = ss_max - ss_min;

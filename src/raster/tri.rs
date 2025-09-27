@@ -41,9 +41,9 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
         Default::default()
     };
 
-    let max_cols = (ss_max.x - ss_min.x) + 1;
+    let max_cols = ss_max.x - ss_min.x;
 
-    for ss_y in ss_min.y..=ss_max.y {
+    for ss_y in ss_min.y..ss_max.y {
         stepper.row_start();
         if vert_col_vary {
             vert_col_stepper.row_start();
