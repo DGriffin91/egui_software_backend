@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, ops::Range};
 
-use egui::{Color32, Pos2, Vec2, vec2};
+use egui::{Color32, Mesh, Pos2, Vec2, vec2};
 
 #[cfg(feature = "raster_stats")]
 use crate::stats::RasterStats;
@@ -44,7 +44,6 @@ pub enum ColorFieldOrder {
 pub struct EguiSoftwareRender {
     textures: HashMap<egui::TextureId, EguiTexture>,
     cached_primitives: HashMap<u32, CachedPrimitive>,
-    px_mesh: egui::Mesh,
     tiles_dim: [usize; 2],
     dirty_tiles: Vec<u8>,
     target_size: Vec2,
@@ -67,7 +66,6 @@ impl EguiSoftwareRender {
         EguiSoftwareRender {
             textures: Default::default(),
             cached_primitives: Default::default(),
-            px_mesh: Default::default(),
             tiles_dim: Default::default(),
             dirty_tiles: Default::default(),
             target_size: Default::default(),
@@ -365,7 +363,8 @@ impl EguiSoftwareRender {
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
             let mut mesh_max = egui::Vec2::splat(-f32::MAX);
 
-            self.prepare_px_mesh(pixels_per_point, input_mesh, &mut mesh_min, &mut mesh_max);
+            let px_mesh =
+                self.prepare_px_mesh(pixels_per_point, input_mesh, &mut mesh_min, &mut mesh_max);
 
             let mesh_size = mesh_max - mesh_min;
             if mesh_size.x > 8192.0 || mesh_size.y > 8192.0 {
@@ -379,7 +378,7 @@ impl EguiSoftwareRender {
                     &self.textures,
                     direct_draw_buffer,
                     &clip_rect,
-                    &self.px_mesh,
+                    &px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt,
                     self.convert_tris_to_rects,
@@ -391,7 +390,7 @@ impl EguiSoftwareRender {
                     &self.textures,
                     direct_draw_buffer,
                     &clip_rect,
-                    &self.px_mesh,
+                    &px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt,
                     self.convert_tris_to_rects,
@@ -405,18 +404,15 @@ impl EguiSoftwareRender {
     }
 
     fn prepare_px_mesh(
-        &mut self,
+        &self,
         pixels_per_point: f32,
         mesh: &egui::Mesh,
         mesh_min: &mut Vec2,
         mesh_max: &mut Vec2,
-    ) {
-        // TODO perf: does this reuse the allocations in temp_px_mesh?
-        self.px_mesh.indices = mesh.indices.clone();
-        self.px_mesh.vertices = mesh.vertices.clone();
-        self.px_mesh.texture_id = mesh.texture_id;
+    ) -> Mesh {
+        let mut px_mesh = mesh.clone();
 
-        for v in self.px_mesh.vertices.iter_mut() {
+        for v in px_mesh.vertices.iter_mut() {
             v.pos *= pixels_per_point;
 
             // This could fix a tiny sub-pixel bias to match gpu rendering due to alias not matching due to things like:
@@ -440,18 +436,19 @@ impl EguiSoftwareRender {
 
         // Make all the tris face forward (ccw) to simplify rasterization.
         // TODO perf: could store the area so it's not recomputed later.
-        for i in (0..self.px_mesh.indices.len()).step_by(3) {
-            let i0 = self.px_mesh.indices[i] as usize;
-            let i1 = self.px_mesh.indices[i + 1] as usize;
-            let i2 = self.px_mesh.indices[i + 2] as usize;
-            let v0 = self.px_mesh.vertices[i0];
-            let v1 = self.px_mesh.vertices[i1];
-            let v2 = self.px_mesh.vertices[i2];
+        for i in (0..px_mesh.indices.len()).step_by(3) {
+            let i0 = px_mesh.indices[i] as usize;
+            let i1 = px_mesh.indices[i + 1] as usize;
+            let i2 = px_mesh.indices[i + 2] as usize;
+            let v0 = px_mesh.vertices[i0];
+            let v1 = px_mesh.vertices[i1];
+            let v2 = px_mesh.vertices[i2];
             let area = egui_orient2df(&v0.pos, &v1.pos, &v2.pos);
             if area < 0.0 {
-                self.px_mesh.indices.swap(i + 1, i + 2);
+                px_mesh.indices.swap(i + 1, i + 2);
             }
         }
+        px_mesh
     }
 
     fn render_prims_to_cache(
@@ -489,7 +486,8 @@ impl EguiSoftwareRender {
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
             let mut mesh_max = egui::Vec2::splat(-f32::MAX);
 
-            self.prepare_px_mesh(pixels_per_point, input_mesh, &mut mesh_min, &mut mesh_max);
+            let px_mesh =
+                self.prepare_px_mesh(pixels_per_point, input_mesh, &mut mesh_min, &mut mesh_max);
 
             let cropped_min = mesh_min.max(clip_rect.min.to_vec2());
             let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
@@ -505,12 +503,12 @@ impl EguiSoftwareRender {
                 hasher.hash_wrap(clip_rect.min.y.to_bits());
                 hasher.hash_wrap(clip_rect.max.x.to_bits());
                 hasher.hash_wrap(clip_rect.max.y.to_bits());
-                hasher.hash_wrap(match self.px_mesh.texture_id {
+                hasher.hash_wrap(match px_mesh.texture_id {
                     egui::TextureId::Managed(id) => id as u32,
                     egui::TextureId::User(id) => id as u32 + 9358476,
                 });
-                for ind in &self.px_mesh.indices {
-                    let v = self.px_mesh.vertices[*ind as usize];
+                for ind in &px_mesh.indices {
+                    let v = px_mesh.vertices[*ind as usize];
 
                     // Tried to do this to avoid full redraws when moving a window but it was resulting in some
                     // meshes to be matches incorrectly in the ui gradient portion of the egui color test:
@@ -524,7 +522,7 @@ impl EguiSoftwareRender {
                     hasher.hash(u32::from_le_bytes(v.color.to_array()));
                     hasher.fnv_wrap();
                 }
-                hasher.hash_wrap(self.px_mesh.indices.len() as u32);
+                hasher.hash_wrap(px_mesh.indices.len() as u32);
                 hasher.finalize()
             };
 
@@ -573,7 +571,7 @@ impl EguiSoftwareRender {
                         &self.textures,
                         &mut buffer_ref,
                         &clip_rect,
-                        &self.px_mesh,
+                        &px_mesh,
                         offset,
                         self.allow_raster_opt,
                         self.convert_tris_to_rects,
@@ -585,7 +583,7 @@ impl EguiSoftwareRender {
                         &self.textures,
                         &mut buffer_ref,
                         &clip_rect,
-                        &self.px_mesh,
+                        &px_mesh,
                         offset,
                         self.allow_raster_opt,
                         self.convert_tris_to_rects,
