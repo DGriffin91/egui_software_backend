@@ -604,86 +604,81 @@ impl EguiSoftwareRender {
         let mut sorted_prim_cache = self.cached_primitives.values().collect::<Vec<_>>();
         sorted_prim_cache.sort_unstable_by_key(|prim| prim.z_order);
 
-        // TODO perf: parallelize
-        for tile_idx in self
-            .dirty_tiles
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| **t & Self::DIRTY_TILE_MASK != 0)
-            .map(|(idx, _)| idx)
+        #[allow(unused_mut)]
+        let mut canvas =
+            BufferMutRef::new(&mut self.canvas.data, self.canvas.width, self.canvas.height);
+
+        #[cfg(feature = "rayon")]
         {
-            let tile_x = tile_idx % self.tiles_dim[0];
-            let tile_y = tile_idx / self.tiles_dim[0];
-            let tile_x_start = tile_x * TILE_SIZE;
-            let tile_y_start = tile_y * TILE_SIZE;
-            let tile_x_end = (tile_x_start + TILE_SIZE).min(self.canvas.width);
-            let tile_y_end = (tile_y_start + TILE_SIZE).min(self.canvas.height);
+            use rayon::{
+                iter::{IndexedParallelIterator, ParallelIterator},
+                slice::ParallelSliceMut,
+            };
+            // composite rows of tiles in parallel
 
-            // clear tile
-            for y in tile_y_start..tile_y_end {
-                let row_start = y * self.canvas.width;
-                let start = row_start + tile_x_start;
-                let end = row_start + tile_x_end;
-                self.canvas.data[start..end].fill([0; 4]);
-            }
+            let full_height = self.canvas.height;
 
-            let tile_n = [tile_x as u16, tile_y as u16];
-            // redraw cached prims on tile
-            for prim in &sorted_prim_cache {
-                if !prim.occupied_tiles.contains(&tile_n) {
-                    continue;
-                }
+            let width = canvas.width;
+            let px_per_row_of_tiles = width * TILE_SIZE;
 
-                let mut min_x = prim.min_x;
-                let mut min_y = prim.min_y;
-                let mut max_x = min_x + prim.width;
-                let mut max_y = min_y + prim.height;
+            canvas
+                .data
+                .par_chunks_mut(px_per_row_of_tiles)
+                .enumerate()
+                .for_each(|(tile_row, tile_height_row)| {
+                    let height = tile_height_row.len() / width; // Might be less than TILE_SIZE
+                    let canvas_tile_row = &mut BufferMutRef::new(
+                        bytemuck::cast_slice_mut(tile_height_row),
+                        width,
+                        height,
+                    );
 
-                min_x = min_x.max(tile_x_start).min(self.canvas.width);
-                min_y = min_y.max(tile_y_start).min(self.canvas.height);
-                max_x = max_x.min(tile_x_end).min(self.canvas.width);
-                max_y = max_y.min(tile_y_end).min(self.canvas.height);
-
-                let prim_buf = prim.get_buffer_ref();
-
-                if max_x <= min_x || max_y <= min_y {
-                    continue;
-                }
-                let prim_x_min = (min_x - prim.min_x).min(prim_buf.width);
-                let prim_x_max = (max_x - prim.min_x).min(prim_buf.width);
-
-                let get_ranges = |y: usize| -> (Range<usize>, Range<usize>) {
-                    let canvas_row_start = y.min(self.canvas.height) * self.canvas.width;
-                    let canvas_start = canvas_row_start + min_x;
-                    let canvas_end = canvas_row_start + max_x;
-
-                    let prim_y = (y - prim.min_y).min(prim_buf.height);
-                    let prim_row_start = prim_y * prim_buf.width;
-                    let prim_start = prim_row_start + prim_x_min;
-                    let prim_end = prim_row_start + prim_x_max;
-
-                    (canvas_start..canvas_end, prim_start..prim_end)
-                };
-
-                if sse41() {
-                    #[cfg(target_arch = "x86_64")]
-                    for y in min_y..max_y {
-                        let (canvas_slice, prim_slice) = get_ranges(y);
-                        let src_row = &prim_buf.data[prim_slice];
-                        let dst_row = &mut self.canvas.data[canvas_slice];
-                        // SAFETY: we first check sse41() outside the loop
-                        unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
-                    }
-                } else {
-                    for y in min_y..max_y {
-                        let (canvas_slice, prim_slice) = get_ranges(y);
-                        let src_row = &prim_buf.data[prim_slice];
-                        let dst_row = &mut self.canvas.data[canvas_slice];
-                        for (pixel, src) in dst_row.iter_mut().zip(src_row) {
-                            *pixel = egui_blend_u8(*src, *pixel);
+                    for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
+                        if mask & Self::OCCUPIED_TILE_MASK == 0 {
+                            continue;
                         }
+
+                        let tile_y = tile_idx / self.tiles_dim[0];
+
+                        if tile_y != tile_row {
+                            continue;
+                        }
+                        let canvas_row_offset = tile_row * TILE_SIZE;
+
+                        let tile_x = tile_idx % self.tiles_dim[0];
+
+                        update_canvas_tile(
+                            &sorted_prim_cache,
+                            canvas_tile_row,
+                            tile_x,
+                            tile_y,
+                            full_height,
+                            canvas_row_offset,
+                        );
                     }
-                }
+                });
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            for tile_idx in self
+                .dirty_tiles
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| **t & Self::DIRTY_TILE_MASK != 0)
+                .map(|(idx, _)| idx)
+            {
+                let tile_x = tile_idx % self.tiles_dim[0];
+                let tile_y = tile_idx / self.tiles_dim[0];
+                let full_height = canvas.height;
+                update_canvas_tile(
+                    &sorted_prim_cache,
+                    &mut canvas,
+                    tile_x,
+                    tile_y,
+                    full_height,
+                    0,
+                );
             }
         }
     }
@@ -754,6 +749,89 @@ impl EguiSoftwareRender {
     fn free_textures(&mut self, textures_delta: &egui::TexturesDelta) {
         for free in &textures_delta.free {
             self.textures.remove(free);
+        }
+    }
+}
+
+fn update_canvas_tile(
+    sorted_prim_cache: &[&CachedPrimitive],
+    canvas: &mut BufferMutRef,
+    tile_x: usize,
+    tile_y: usize,
+    full_height: usize,
+    canvas_row_offset: usize,
+) {
+    let tile_x_start = tile_x * TILE_SIZE;
+    let tile_y_start = tile_y * TILE_SIZE;
+    let tile_x_end = (tile_x_start + TILE_SIZE).min(canvas.width);
+    let tile_y_end = (tile_y_start + TILE_SIZE).min(full_height);
+
+    // clear tile
+    for y in (tile_y_start - canvas_row_offset)..(tile_y_end - canvas_row_offset) {
+        let row_start = y * canvas.width;
+        let start = row_start + tile_x_start;
+        let end = row_start + tile_x_end;
+        canvas.data[start..end].fill([0; 4]);
+    }
+
+    let tile_n = [tile_x as u16, tile_y as u16];
+    // redraw cached prims on tile
+    for prim in sorted_prim_cache {
+        if !prim.occupied_tiles.contains(&tile_n) {
+            continue;
+        }
+
+        let mut min_x = prim.min_x;
+        let mut min_y = prim.min_y;
+        let mut max_x = min_x + prim.width;
+        let mut max_y = min_y + prim.height;
+
+        min_x = min_x.max(tile_x_start).min(canvas.width);
+        min_y = min_y
+            .max(tile_y_start)
+            .min(canvas.height + canvas_row_offset);
+        max_x = max_x.min(tile_x_end).min(canvas.width);
+        max_y = max_y.min(tile_y_end).min(canvas.height + canvas_row_offset);
+
+        let prim_buf = prim.get_buffer_ref();
+
+        if max_x <= min_x || max_y <= min_y {
+            continue;
+        }
+        let prim_x_min = (min_x - prim.min_x).min(prim_buf.width);
+        let prim_x_max = (max_x - prim.min_x).min(prim_buf.width);
+
+        let get_ranges = |y: usize| -> (Range<usize>, Range<usize>) {
+            let canvas_row_start = (y - canvas_row_offset).min(canvas.height) * canvas.width;
+            let canvas_start = canvas_row_start + min_x;
+            let canvas_end = canvas_row_start + max_x;
+
+            let prim_y = (y - prim.min_y).min(prim_buf.height);
+            let prim_row_start = prim_y * prim_buf.width;
+            let prim_start = prim_row_start + prim_x_min;
+            let prim_end = prim_row_start + prim_x_max;
+
+            (canvas_start..canvas_end, prim_start..prim_end)
+        };
+
+        if sse41() {
+            #[cfg(target_arch = "x86_64")]
+            for y in min_y..max_y {
+                let (canvas_slice, prim_slice) = get_ranges(y);
+                let src_row = &prim_buf.data[prim_slice];
+                let dst_row = &mut canvas.data[canvas_slice];
+                // SAFETY: we first check sse41() outside the loop
+                unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
+            }
+        } else {
+            for y in min_y..max_y {
+                let (canvas_slice, prim_slice) = get_ranges(y);
+                let src_row = &prim_buf.data[prim_slice];
+                let dst_row = &mut canvas.data[canvas_slice];
+                for (pixel, src) in dst_row.iter_mut().zip(src_row) {
+                    *pixel = egui_blend_u8(*src, *pixel);
+                }
+            }
         }
     }
 }
