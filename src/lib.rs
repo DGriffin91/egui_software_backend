@@ -219,34 +219,102 @@ impl EguiSoftwareRender {
 
         let tiles_x = self.tiles_dim[0];
 
-        for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
-            if mask & Self::OCCUPIED_TILE_MASK == 0 {
-                continue;
-            }
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::{
+                iter::{IndexedParallelIterator, ParallelIterator},
+                slice::ParallelSliceMut,
+            };
+            // blit rows of tiles in parallel
 
-            let tile_x = tile_idx % tiles_x;
-            let tile_y = tile_idx / tiles_x;
+            let width = buffer.width;
+            let px_per_row_of_tiles = width * TILE_SIZE;
 
-            let x_start = tile_x * TILE_SIZE;
-            let y_start = tile_y * TILE_SIZE;
-            let x_end = (x_start + TILE_SIZE).min(width);
-            let y_end = (y_start + TILE_SIZE).min(height);
+            buffer
+                .data
+                .par_chunks_mut(px_per_row_of_tiles)
+                .enumerate()
+                .for_each(|(tile_row, tile_height_row)| {
+                    let height = tile_height_row.len() / width; // Might be less than TILE_SIZE
+                    let buffer_tile_row = &mut BufferMutRef::new(
+                        bytemuck::cast_slice_mut(tile_height_row),
+                        width,
+                        height,
+                    );
 
-            if sse41() {
-                #[cfg(target_arch = "x86_64")]
-                for y in y_start..y_end {
-                    let src_row = self.canvas.get_span(x_start, x_end, y);
-                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    // SAFETY: we first check sse41() outside the loop
-                    unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
-                }
-            } else {
-                for y in y_start..y_end {
-                    let src_row = self.canvas.get_span(x_start, x_end, y);
-                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                        *dst = egui_blend_u8(src, *dst);
+                    for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
+                        if mask & Self::OCCUPIED_TILE_MASK == 0 {
+                            continue;
+                        }
+
+                        let tile_y = tile_idx / tiles_x;
+                        if tile_y != tile_row {
+                            continue;
+                        }
+
+                        let tile_x = tile_idx % tiles_x;
+
+                        let x_start = tile_x * TILE_SIZE;
+                        let y_start = 0;
+                        let x_end = (x_start + TILE_SIZE).min(width);
+                        let y_end = TILE_SIZE.min(height);
+
+                        let canvas_row_offset = tile_row * TILE_SIZE;
+
+                        self.blit_tile(
+                            buffer_tile_row,
+                            x_start,
+                            y_start,
+                            x_end,
+                            y_end,
+                            canvas_row_offset,
+                        );
                     }
+                });
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
+                if mask & Self::OCCUPIED_TILE_MASK == 0 {
+                    continue;
+                }
+
+                let tile_x = tile_idx % tiles_x;
+                let tile_y = tile_idx / tiles_x;
+
+                let x_start = tile_x * TILE_SIZE;
+                let y_start = tile_y * TILE_SIZE;
+                let x_end = (x_start + TILE_SIZE).min(width);
+                let y_end = (y_start + TILE_SIZE).min(height);
+
+                self.blit_tile(buffer, x_start, y_start, x_end, y_end, 0);
+            }
+        }
+    }
+
+    fn blit_tile(
+        &self,
+        buffer: &mut BufferMutRef,
+        x_start: usize,
+        y_start: usize,
+        x_end: usize,
+        y_end: usize,
+        canvas_row_offset: usize,
+    ) {
+        if sse41() {
+            #[cfg(target_arch = "x86_64")]
+            for y in y_start..y_end {
+                let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
+                let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
+                // SAFETY: we first check sse41() outside the loop
+                unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
+            }
+        } else {
+            for y in y_start..y_end {
+                let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
+                let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
+                for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
+                    *dst = egui_blend_u8(src, *dst);
                 }
             }
         }
