@@ -12,7 +12,7 @@ use crate::math::i64vec2::{I64Vec2, i64vec2};
 /// sp for subpixel space (unit fraction of screen pixel)
 #[allow(unused)]
 pub fn raster_tri<const SUBPIX_BITS: i32>(
-    ss_bounds: [i32; 4],
+    ss_bounds: [I64Vec2; 2],
     ss_tri: &[Vec2; 3],
     // ss_x, ss_y
     mut raster: impl FnMut(i64, i64),
@@ -38,16 +38,13 @@ pub fn raster_tri<const SUBPIX_BITS: i32>(
 
 /// returns: ss_min, ss_max, sp_inv_area, stepper
 pub fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
-    ss_bounds: [i32; 4],
+    ss_bounds: [I64Vec2; 2],
     ss_tri: &[Vec2; 3],
 ) -> Option<(I64Vec2, I64Vec2, f32, SingleStepper)> {
     let subpix_bits = SUBPIX_BITS as u32;
     let subpix: i64 = 1 << subpix_bits;
     let subpix_half: i64 = subpix >> 1;
     let fsubpix = subpix as f32;
-
-    let ss_min_bound = i64vec2(ss_bounds[0] as i64, ss_bounds[1] as i64);
-    let ss_max_bound = i64vec2(ss_bounds[2] as i64, ss_bounds[3] as i64);
 
     let sp0 = I64Vec2::from_vec2(ss_tri[0] * fsubpix);
     let sp1 = I64Vec2::from_vec2(ss_tri[1] * fsubpix);
@@ -63,11 +60,11 @@ pub fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
     let sp_max = sp0.max(sp1).max(sp2);
 
     let ss_min = ((sp_min - subpix_half) >> subpix_bits)
-        .max(ss_min_bound)
-        .min(ss_max_bound - 1);
+        .max(ss_bounds[0])
+        .min(ss_bounds[1] - 1);
     let ss_max = ((sp_max + subpix_half) >> subpix_bits)
-        .max(ss_min_bound)
-        .min(ss_max_bound - 1);
+        .max(ss_bounds[0])
+        .min(ss_bounds[1] - 1);
 
     let sp_min_p = ss_min * subpix + subpix_half;
     let ss_size = ss_max - ss_min;

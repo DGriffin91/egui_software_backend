@@ -5,7 +5,10 @@ use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 use crate::{
     BufferMutRef, EguiTexture,
     color::{u8x4_to_vec4, vec4_to_u8x4},
-    math::vec4::Vec4,
+    math::{
+        i64vec2::{I64Vec2, i64vec2},
+        vec4::Vec4,
+    },
     raster::{rect::draw_rect, tri::draw_tri},
     sse41,
 };
@@ -30,20 +33,19 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
     let indices = &mesh.indices;
     let vertices = &mesh.vertices;
-    let clip_x = clip_rect.min.x as i32;
-    let clip_y = clip_rect.min.y as i32;
-
-    let clip_width = (clip_rect.max.x - clip_rect.min.x + 0.5) as i32;
-    let clip_height = (clip_rect.max.y - clip_rect.min.y + 0.5) as i32;
 
     let clip_bounds = [
-        clip_x.clamp(0, buffer.width as i32),
-        clip_y.clamp(0, buffer.height as i32),
-        (clip_x + clip_width).clamp(0, buffer.width as i32),
-        (clip_y + clip_height).clamp(0, buffer.height as i32),
+        i64vec2(
+            ((clip_rect.min.x + 0.5) as i64).clamp(0, buffer.width as i64),
+            ((clip_rect.min.y + 0.5) as i64).clamp(0, buffer.height as i64),
+        ),
+        i64vec2(
+            ((clip_rect.max.x + 0.5) as i64).clamp(0, buffer.width as i64),
+            ((clip_rect.max.y + 0.5) as i64).clamp(0, buffer.height as i64),
+        ),
     ];
 
-    if clip_bounds[2] - clip_bounds[0] <= 0 || clip_bounds[3] - clip_bounds[1] <= 0 {
+    if clip_bounds[1].x - clip_bounds[0].x <= 0 || clip_bounds[1].y - clip_bounds[0].y <= 0 {
         return;
     }
 
@@ -217,7 +219,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 }
 
 pub struct DrawInfo {
-    pub clip_bounds: [i32; 4],
+    pub clip_bounds: [I64Vec2; 2],
     pub colors: [Vec4; 3],
     pub ss_tri: [Vec2; 3],
     pub uv: [Vec2; 3],
@@ -232,7 +234,7 @@ pub struct DrawInfo {
 
 impl DrawInfo {
     fn new(
-        clip_bounds: [i32; 4],
+        clip_bounds: [I64Vec2; 2],
         colors: [Vec4; 3],
         ss_tri: [Vec2; 3],
         uv: [Vec2; 3],

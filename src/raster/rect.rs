@@ -22,10 +22,10 @@ pub fn draw_rect(
     let clip_bounds = &draw.clip_bounds;
     let tri_min = draw.tri_min;
     let tri_max = draw.tri_max;
-    let min_x = ((tri_min.x + 0.5) as i32).max(clip_bounds[0]);
-    let min_y = ((tri_min.y + 0.5) as i32).max(clip_bounds[1]);
-    let max_x = ((tri_max.x + 0.5) as i32).min(clip_bounds[2]);
-    let max_y = ((tri_max.y + 0.5) as i32).min(clip_bounds[3]);
+    let min_x = ((tri_min.x + 0.5) as i64).max(clip_bounds[0].x);
+    let min_y = ((tri_min.y + 0.5) as i64).max(clip_bounds[0].y);
+    let max_x = ((tri_max.x + 0.5) as i64).min(clip_bounds[1].x);
+    let max_y = ((tri_max.y + 0.5) as i64).min(clip_bounds[1].y);
 
     let sizex = max_x - min_x;
     let sizey = max_y - min_y;
