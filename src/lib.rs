@@ -176,7 +176,7 @@ impl EguiSoftwareRender {
 
         self.set_textures(textures_delta);
 
-        self.render_prims_to_canvas(paint_jobs, pixels_per_point);
+        self.render_prims_to_cache(paint_jobs, pixels_per_point);
 
         self.update_dirty_tiles();
         self.clear_unused_cached_prims();
@@ -454,7 +454,7 @@ impl EguiSoftwareRender {
         }
     }
 
-    fn render_prims_to_canvas(
+    fn render_prims_to_cache(
         &mut self,
         paint_jobs: &[egui::ClippedPrimitive],
         pixels_per_point: f32,
