@@ -19,11 +19,11 @@ mod tests {
             move |ctx: &egui::Context| {
                 egui_demo.ui(&ctx);
 
-                //egui::CentralPanel::default().show(ctx, |ui| {
-                //    #[allow(const_item_mutation)]
-                //    ui.color_edit_button_srgba(&mut egui::Color32::TRANSPARENT);
-                //    ui.end_row();
-                //});
+                // egui::CentralPanel::default().show(ctx, |ui| {
+                //     #[allow(const_item_mutation)]
+                //     ui.color_edit_button_srgba(&mut egui::Color32::TRANSPARENT);
+                //     ui.end_row();
+                // });
             }
         }
 

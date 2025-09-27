@@ -10,10 +10,12 @@ impl I64Vec2 {
     pub fn from_vec2(v: egui::Vec2) -> Self {
         i64vec2(v.x as i64, v.y as i64)
     }
+
     #[inline(always)]
     pub fn min(self, v: Self) -> Self {
         i64vec2(self.x.min(v.x), self.y.min(v.y))
     }
+
     #[inline(always)]
     pub fn max(self, v: Self) -> Self {
         i64vec2(self.x.max(v.x), self.y.max(v.y))

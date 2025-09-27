@@ -260,7 +260,9 @@ impl EguiSoftwareRender {
     ) {
         #[cfg(feature = "raster_stats")]
         self.stats.clear();
+
         self.set_textures(textures_delta);
+
         self.target_size = vec2(
             direct_draw_buffer.width as f32,
             direct_draw_buffer.height as f32,
@@ -296,6 +298,7 @@ impl EguiSoftwareRender {
                 // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
                 continue;
             }
+
             let render_in_low_precision = mesh_size.x > 4096.0 || mesh_size.y > 4096.0;
             if render_in_low_precision {
                 draw_egui_mesh::<2>(
@@ -828,6 +831,7 @@ impl<'a> BufferMutRef<'a> {
         let y = y.min(self.height_extent);
         &mut self.data[x + y * self.width]
     }
+
     #[inline(always)]
     pub fn get_mut(&mut self, x: usize, y: usize) -> &mut [u8; 4] {
         &mut self.data[x + y * self.width]
@@ -850,6 +854,7 @@ impl<'a> BufferRef<'a> {
         let y = y.min(self.height_extent);
         &self.data[x + y * self.width]
     }
+
     #[inline(always)]
     pub fn get_ref(&self, x: usize, y: usize) -> &[u8; 4] {
         &self.data[x + y * self.width]
