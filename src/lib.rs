@@ -471,9 +471,16 @@ impl EguiSoftwareRender {
             None,
         }
 
-        let updates: Vec<CacheUpdate> = paint_jobs
-            .iter()
-            .enumerate()
+        // Render paint jobs in parallel
+        #[cfg(feature = "rayon")]
+        use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+        #[cfg(feature = "rayon")]
+        let iter = paint_jobs.par_iter().enumerate();
+
+        #[cfg(not(feature = "rayon"))]
+        let iter = paint_jobs.iter().enumerate();
+
+        let updates: Vec<CacheUpdate> = iter
             .map(
                 |(
                     prim_idx,
@@ -618,7 +625,6 @@ impl EguiSoftwareRender {
                                 &mut self.stats,
                             );
                         }
-                        self.prims_updated_this_frame += 1;
                         prim.update_occupied_tiles(self.tiles_dim[0], self.tiles_dim[1]);
                         return CacheUpdate::New(hash, prim);
                     }
@@ -637,6 +643,7 @@ impl EguiSoftwareRender {
                 }
             }
             CacheUpdate::New(hash, prim) => {
+                self.prims_updated_this_frame += 1;
                 self.cached_primitives.insert(hash, prim);
             }
             CacheUpdate::None => return,
