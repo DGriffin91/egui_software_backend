@@ -1,5 +1,6 @@
 use std::{collections::HashMap, time::Instant};
 
+#[allow(unused_imports)]
 use egui::{Ui, Vec2, Vec2b};
 
 #[derive(Clone, Copy)]
@@ -23,6 +24,12 @@ pub struct RasterStats {
     pub tris: u32,                             // Total tris drawn
     pub rects: u32,                            // Total rects drawn
     pub start: Instant,                        // Time just before latest rasterization
+    pub set_textures: f32,
+    pub update_dirty_tiles: f32,
+    pub update_canvas_from_cached: f32,
+    pub render_prims_to_cache: f32,
+    pub render_direct: f32,
+    pub blit_canvas_to_buffer: f32,
 }
 
 impl Default for RasterStats {
@@ -40,11 +47,18 @@ impl Default for RasterStats {
             rect_alpha_blend: Default::default(),
             rects: Default::default(),
             tris: Default::default(),
+            set_textures: Default::default(),
+            update_dirty_tiles: Default::default(),
+            update_canvas_from_cached: Default::default(),
+            render_prims_to_cache: Default::default(),
+            render_direct: Default::default(),
+            blit_canvas_to_buffer: Default::default(),
             start: Instant::now(),
         }
     }
 }
 
+#[cfg(not(feature = "rayon"))]
 fn insert_or_increment(long_side_size: u32, elapsed: f32, area: f32, map: &mut HashMap<u32, Stat>) {
     if let Some(stat) = map.get_mut(&long_side_size) {
         stat.count += 1;
@@ -67,10 +81,12 @@ impl RasterStats {
         *self = RasterStats::default();
     }
 
+    #[cfg(not(feature = "rayon"))]
     pub(crate) fn start_raster(&mut self) {
         self.start = Instant::now();
     }
 
+    #[cfg(not(feature = "rayon"))]
     pub(crate) fn finish_rect(
         &mut self,
         fsize: Vec2,
@@ -98,6 +114,7 @@ impl RasterStats {
         self.rect_alpha_blend += alpha_blend as u32;
     }
 
+    #[cfg(not(feature = "rayon"))]
     pub(crate) fn finish_tri(
         &mut self,
         fsize: Vec2,
@@ -131,6 +148,18 @@ impl RasterStats {
             .min_scrolled_width(900.0)
             .show(ui, |ui| {
                 egui::Grid::new("stats_grid").striped(true).show(ui, |ui| {
+                    let mut stat = |label: &str, val: f32| {
+                        ui.label(label);
+                        ui.label(format!("{:.2}ms", val * 1000.0));
+                        ui.end_row();
+                    };
+                    stat("set_textures", self.set_textures);
+                    stat("render_prims_to_cache", self.render_prims_to_cache);
+                    stat("update_dirty_tiles", self.update_dirty_tiles);
+                    stat("update_canvas_from_cached", self.update_canvas_from_cached);
+                    stat("blit_canvas_to_buffer", self.blit_canvas_to_buffer);
+                    stat("render_direct", self.render_direct);
+
                     ui.heading("");
                     ui.heading("Tri");
                     ui.heading("Rect");

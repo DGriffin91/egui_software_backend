@@ -21,7 +21,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     vert_offset: Vec2,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
-    #[cfg(feature = "raster_stats")] stats: &mut crate::stats::RasterStats,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+    stats: &mut crate::stats::RasterStats,
 ) {
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
         return;
@@ -186,7 +187,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
 
         let rect = found_rect && !vert_col_vary; // vert_col_vary not supported by rect render
 
-        #[cfg(feature = "raster_stats")]
+        #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
         stats.start_raster();
         if rect {
             draw_rect(
@@ -198,7 +199,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 alpha_blend,
                 sse41(),
             );
-            #[cfg(feature = "raster_stats")]
+
+            #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
             stats.finish_rect(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 6;
         } else {
@@ -211,7 +213,8 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 alpha_blend,
                 sse41(),
             );
-            #[cfg(feature = "raster_stats")]
+
+            #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
             stats.finish_tri(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 3;
         }
