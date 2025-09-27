@@ -52,7 +52,7 @@ members = ["examples/bevy_example", "constify"]
 ## Turn on the `log` feature, that makes egui_software_backend log some errors using the [`log`](https://docs.rs/log) crate.
 log = ["dep:log"]
 
-## Enable parallel rasterisation and compositing using [`rayon`](https://docs.rs/rayon).
+## Enable parallel rasterization and compositing using [`rayon`](https://docs.rs/rayon).
 rayon = ["dep:rayon"]
 
 raster_stats = []
