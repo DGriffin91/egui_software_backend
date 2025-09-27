@@ -9,6 +9,8 @@ bytemuck = { version = "1.23" }
 strength_reduce = "0.2.4"
 constify = { path = "constify" }
 
+log = { version = "0.4.28", optional = true }
+
 # Optional dependencies for automated testing: 
 egui_kittest = { version = "0.32", optional = true }
 image = { version = "0.25", optional = true }
@@ -45,7 +47,8 @@ opt-level = 3
 members = ["examples/bevy_example", "constify"]
 
 [features]
-#default = ["raster_stats"]
+## Turn on the `log` feature, that makes egui_software_backend log some errors using the [`log`](https://docs.rs/log) crate.
+log = ["dep:log"]
 
 raster_stats = []
 test_render = ["dep:image", "dep:egui_kittest"]

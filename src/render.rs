@@ -28,10 +28,6 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         return;
     };
 
-    if texture.options.magnification != texture.options.minification {
-        todo!(); // Warn? Would need helper lanes to impl?
-    }
-
     let indices = &mesh.indices;
     let vertices = &mesh.vertices;
     let clip_x = clip_rect.min.x as i32;

@@ -205,9 +205,11 @@ impl EguiSoftwareRender {
         // });
 
         if self.canvas.data.is_empty() {
-            panic!(
+            #[cfg(feature = "log")]
+            log::error!(
                 "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render_to_canvas()"
-            )
+            );
+            return;
         }
 
         let width = self.canvas.width;
@@ -275,7 +277,11 @@ impl EguiSoftwareRender {
         {
             let input_mesh = match primitive {
                 egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
-                _ => todo!(),
+                egui::epaint::Primitive::Callback(_) => {
+                    #[cfg(feature = "log")]
+                    log::error!("egui::epaint::Primitive::Callback(PaintCallback) not supported");
+                    continue;
+                }
             };
 
             if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
@@ -395,7 +401,11 @@ impl EguiSoftwareRender {
         {
             let input_mesh = match primitive {
                 egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
-                _ => todo!(),
+                egui::epaint::Primitive::Callback(_) => {
+                    #[cfg(feature = "log")]
+                    log::error!("egui::epaint::Primitive::Callback(PaintCallback) not supported");
+                    continue;
+                }
             };
 
             if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
@@ -615,12 +625,6 @@ impl EguiSoftwareRender {
             .retain(|_hash, prim| prim.seen_this_frame);
     }
 
-    fn free_textures(&mut self, textures_delta: &egui::TexturesDelta) {
-        for free in &textures_delta.free {
-            self.textures.remove(free);
-        }
-    }
-
     const DIRTY_TILE_MASK: u8 = 0b00000001;
     const OCCUPIED_TILE_MASK: u8 = 0b000000010;
     fn update_dirty_tiles(&mut self) {
@@ -641,6 +645,13 @@ impl EguiSoftwareRender {
 
     fn set_textures(&mut self, textures_delta: &egui::TexturesDelta) {
         for (id, delta) in &textures_delta.set {
+            if delta.options.magnification != delta.options.minification {
+                // Would need helper lanes to impl?
+                #[cfg(feature = "log")]
+                log::warn!(
+                    "TextureOptions magnification and minification not matching is unsupported."
+                );
+            }
             let pixels = match &delta.image {
                 egui::ImageData::Color(image) => {
                     assert_eq!(image.width() * image.height(), image.pixels.len());
@@ -669,6 +680,12 @@ impl EguiSoftwareRender {
 
                 self.textures.insert(*id, new_texture);
             }
+        }
+    }
+
+    fn free_textures(&mut self, textures_delta: &egui::TexturesDelta) {
+        for free in &textures_delta.free {
+            self.textures.remove(free);
         }
     }
 }
