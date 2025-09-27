@@ -312,7 +312,6 @@ pub unsafe fn egui_blend_u8_slice_one_src_tinted_fn_sse41(
 }
 
 #[target_feature(enable = "sse4.1")]
-#[allow(unused)]
 pub unsafe fn unorm_mult4x4_sse41(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
     let e1 = _mm_set1_epi16(0x0080);
     let a = _mm_cvtepu8_epi16(_mm_cvtsi32_si128(i32::from_le_bytes(a)));

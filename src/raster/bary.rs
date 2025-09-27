@@ -10,6 +10,7 @@ use crate::math::i64vec2::{I64Vec2, i64vec2};
 
 /// ss for screen space (unit is screen pixel)
 /// sp for subpixel space (unit fraction of screen pixel)
+/// Here for reference for raster without using span.
 #[allow(unused)]
 pub fn raster_tri<const SUBPIX_BITS: i32>(
     ss_bounds: [I64Vec2; 2],
@@ -17,7 +18,6 @@ pub fn raster_tri<const SUBPIX_BITS: i32>(
     // ss_x, ss_y
     mut raster: impl FnMut(i64, i64),
 ) {
-    // TODO is scanline faster when barycentrics are not needed?
     let Some((ss_min, ss_max, _sp_inv_area, mut stepper)) =
         stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(ss_bounds, ss_tri)
     else {
