@@ -456,6 +456,17 @@ impl EguiSoftwareRender {
         paint_jobs: &[egui::ClippedPrimitive],
         pixels_per_point: f32,
     ) {
+        struct CacheReuse {
+            seen_this_frame: bool,
+            z_order: usize,
+            min_x: usize,
+            min_y: usize,
+            rendered_this_frame: bool,
+            hash: u32,
+        }
+        let mut cache_updates: Vec<CacheReuse> = Vec::new();
+        let mut new_cached_prims = Vec::new();
+
         for (
             prim_idx,
             egui::ClippedPrimitive {
@@ -526,12 +537,15 @@ impl EguiSoftwareRender {
                 hasher.finalize()
             };
 
-            if let Some(cached_primitive) = self.cached_primitives.get_mut(&hash) {
-                cached_primitive.seen_this_frame = true;
-                cached_primitive.z_order = prim_idx;
-                cached_primitive.min_x = cropped_min.x as usize;
-                cached_primitive.min_y = cropped_min.y as usize;
-                cached_primitive.rendered_this_frame = false;
+            if self.cached_primitives.contains_key(&hash) {
+                cache_updates.push(CacheReuse {
+                    hash,
+                    seen_this_frame: true,
+                    z_order: prim_idx,
+                    min_x: cropped_min.x as usize,
+                    min_y: cropped_min.y as usize,
+                    rendered_this_frame: false,
+                });
             } else {
                 let width = (cropped_max.x - cropped_min.x + 0.5) as usize;
                 let height = (cropped_max.y - cropped_min.y + 0.5) as usize;
@@ -593,8 +607,22 @@ impl EguiSoftwareRender {
                 }
                 self.prims_updated_this_frame += 1;
                 prim.update_occupied_tiles(self.tiles_dim[0], self.tiles_dim[1]);
-                self.cached_primitives.insert(hash, prim);
+                new_cached_prims.push((hash, prim));
             }
+        }
+
+        for update in cache_updates {
+            if let Some(cached_primitive) = self.cached_primitives.get_mut(&update.hash) {
+                cached_primitive.seen_this_frame = update.seen_this_frame;
+                cached_primitive.z_order = update.z_order;
+                cached_primitive.min_x = update.min_x;
+                cached_primitive.min_y = update.min_y;
+                cached_primitive.rendered_this_frame = update.rendered_this_frame;
+            }
+        }
+
+        for (hash, prim) in new_cached_prims {
+            self.cached_primitives.insert(hash, prim);
         }
     }
 
