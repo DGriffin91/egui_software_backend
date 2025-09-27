@@ -558,14 +558,14 @@ impl EguiSoftwareRender {
                     };
 
                     if self.cached_primitives.contains_key(&hash) {
-                        return CacheUpdate::CacheReuse(CacheReuse {
+                        CacheUpdate::CacheReuse(CacheReuse {
                             hash,
                             seen_this_frame: true,
                             z_order: prim_idx,
                             min_x: cropped_min.x as usize,
                             min_y: cropped_min.y as usize,
                             rendered_this_frame: false,
-                        });
+                        })
                     } else {
                         let width = (cropped_max.x - cropped_min.x + 0.5) as usize;
                         let height = (cropped_max.y - cropped_min.y + 0.5) as usize;
@@ -626,7 +626,7 @@ impl EguiSoftwareRender {
                             );
                         }
                         prim.update_occupied_tiles(self.tiles_dim[0], self.tiles_dim[1]);
-                        return CacheUpdate::New(hash, prim);
+                        CacheUpdate::New(hash, prim)
                     }
                 },
             )
@@ -646,7 +646,7 @@ impl EguiSoftwareRender {
                 self.prims_updated_this_frame += 1;
                 self.cached_primitives.insert(hash, prim);
             }
-            CacheUpdate::None => return,
+            CacheUpdate::None => (),
         });
     }
 
