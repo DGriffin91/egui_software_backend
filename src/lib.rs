@@ -621,12 +621,12 @@ impl EguiSoftwareRender {
 
             // clear tile
             for y in tile_y_start..tile_y_end {
-                for x in tile_x_start..tile_x_end {
-                    let canvas_x = x.min(self.canvas.width_extent);
-                    let canvas_y = y.min(self.canvas.height_extent);
-                    self.canvas.data[canvas_x + canvas_y * self.canvas.width] = [0; 4];
-                }
+                let row_start = y * self.canvas.width;
+                let start = row_start + tile_x_start;
+                let end = row_start + tile_x_end;
+                self.canvas.data[start..end].fill([0; 4]);
             }
+
             let tile_n = [tile_x as u16, tile_y as u16];
             // redraw cached prims on tile
             for prim in &sorted_prim_cache {
