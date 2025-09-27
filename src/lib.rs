@@ -464,173 +464,183 @@ impl EguiSoftwareRender {
             rendered_this_frame: bool,
             hash: u32,
         }
-        let mut cache_updates: Vec<CacheReuse> = Vec::new();
-        let mut new_cached_prims = Vec::new();
 
-        paint_jobs.iter().enumerate().for_each(
-            |(
-                prim_idx,
-                egui::ClippedPrimitive {
-                    clip_rect,
-                    primitive,
-                },
-            )| {
-                let input_mesh = match primitive {
-                    egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
-                    egui::epaint::Primitive::Callback(_) => {
-                        #[cfg(feature = "log")]
-                        log::error!(
-                            "egui::epaint::Primitive::Callback(PaintCallback) not supported"
-                        );
-                        return;
-                    }
-                };
+        enum CacheUpdate {
+            CacheReuse(CacheReuse),
+            New(u32, CachedPrimitive),
+            None,
+        }
 
-                if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
-                    return;
-                }
-
-                let clip_rect = egui::Rect {
-                    min: clip_rect.min * pixels_per_point,
-                    // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
-                    max: clip_rect.max * pixels_per_point + egui::Vec2::splat(1.5),
-                };
-
-                let mut mesh_min = egui::Vec2::splat(f32::MAX);
-                let mut mesh_max = egui::Vec2::splat(-f32::MAX);
-
-                let px_mesh = self.prepare_px_mesh(
-                    pixels_per_point,
-                    input_mesh,
-                    &mut mesh_min,
-                    &mut mesh_max,
-                );
-
-                let cropped_min = mesh_min.max(clip_rect.min.to_vec2());
-                let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
-                let clip_rect = egui::Rect {
-                    min: Pos2::ZERO,
-                    max: (cropped_max - cropped_min).to_pos2(),
-                };
-
-                let hash = {
-                    let mut hasher = Hash32::new_fnv();
-
-                    hasher.hash_wrap(clip_rect.min.x.to_bits());
-                    hasher.hash_wrap(clip_rect.min.y.to_bits());
-                    hasher.hash_wrap(clip_rect.max.x.to_bits());
-                    hasher.hash_wrap(clip_rect.max.y.to_bits());
-                    hasher.hash_wrap(match px_mesh.texture_id {
-                        egui::TextureId::Managed(id) => id as u32,
-                        egui::TextureId::User(id) => id as u32 + 9358476,
-                    });
-                    for ind in &px_mesh.indices {
-                        let v = px_mesh.vertices[*ind as usize];
-
-                        // Tried to do this to avoid full redraws when moving a window but it was resulting in some
-                        // meshes to be matches incorrectly in the ui gradient portion of the egui color test:
-                        //let pos = v.pos - cropped_min;
-
-                        // It's much faster to not wrap for every field. General ordering should be sufficiently preserved.
-                        hasher.hash(v.pos.x.to_bits());
-                        hasher.hash(v.pos.y.to_bits());
-                        hasher.hash(v.uv.x.to_bits());
-                        hasher.hash(v.uv.y.to_bits());
-                        hasher.hash(u32::from_le_bytes(v.color.to_array()));
-                        hasher.fnv_wrap();
-                    }
-                    hasher.hash_wrap(px_mesh.indices.len() as u32);
-                    hasher.finalize()
-                };
-
-                if self.cached_primitives.contains_key(&hash) {
-                    cache_updates.push(CacheReuse {
-                        hash,
-                        seen_this_frame: true,
-                        z_order: prim_idx,
-                        min_x: cropped_min.x as usize,
-                        min_y: cropped_min.y as usize,
-                        rendered_this_frame: false,
-                    });
-                } else {
-                    let width = (cropped_max.x - cropped_min.x + 0.5) as usize;
-                    let height = (cropped_max.y - cropped_min.y + 0.5) as usize;
-
-                    if width > 8192 || height > 8192 {
-                        // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
-                        return;
-                    }
-
-                    if width == 0 || height == 0 {
-                        return;
-                    }
-
-                    let render_in_low_precision = width > 4096 || height > 4096;
-
-                    let mut prim = CachedPrimitive::new(
-                        cropped_min.x as usize,
-                        cropped_min.y as usize,
-                        width,
-                        height,
-                        prim_idx,
-                    );
-                    let mut buffer_ref = BufferMutRef {
-                        data: &mut prim.buffer,
-                        width,
-                        height,
-                        width_extent: width - 1,
-                        height_extent: height - 1,
+        let updates: Vec<CacheUpdate> = paint_jobs
+            .iter()
+            .enumerate()
+            .map(
+                |(
+                    prim_idx,
+                    egui::ClippedPrimitive {
+                        clip_rect,
+                        primitive,
+                    },
+                )| {
+                    let input_mesh = match primitive {
+                        egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
+                        egui::epaint::Primitive::Callback(_) => {
+                            #[cfg(feature = "log")]
+                            log::error!(
+                                "egui::epaint::Primitive::Callback(PaintCallback) not supported"
+                            );
+                            return CacheUpdate::None;
+                        }
                     };
 
-                    let offset = -vec2(cropped_min.x.floor(), cropped_min.y.floor());
-
-                    // TODO perf: straightforward to multi-thread checking hash and render since the render targets are separate.
-                    if render_in_low_precision {
-                        // Seems to not be an issue in direct draw? Seems like a bug.
-                        draw_egui_mesh::<2>(
-                            &self.textures,
-                            &mut buffer_ref,
-                            &clip_rect,
-                            &px_mesh,
-                            offset,
-                            self.allow_raster_opt,
-                            self.convert_tris_to_rects,
-                            #[cfg(feature = "raster_stats")]
-                            &mut self.stats,
-                        );
-                    } else {
-                        draw_egui_mesh::<8>(
-                            &self.textures,
-                            &mut buffer_ref,
-                            &clip_rect,
-                            &px_mesh,
-                            offset,
-                            self.allow_raster_opt,
-                            self.convert_tris_to_rects,
-                            #[cfg(feature = "raster_stats")]
-                            &mut self.stats,
-                        );
+                    if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
+                        return CacheUpdate::None;
                     }
-                    self.prims_updated_this_frame += 1;
-                    prim.update_occupied_tiles(self.tiles_dim[0], self.tiles_dim[1]);
-                    new_cached_prims.push((hash, prim));
+
+                    let clip_rect = egui::Rect {
+                        min: clip_rect.min * pixels_per_point,
+                        // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
+                        max: clip_rect.max * pixels_per_point + egui::Vec2::splat(1.5),
+                    };
+
+                    let mut mesh_min = egui::Vec2::splat(f32::MAX);
+                    let mut mesh_max = egui::Vec2::splat(-f32::MAX);
+
+                    let px_mesh = self.prepare_px_mesh(
+                        pixels_per_point,
+                        input_mesh,
+                        &mut mesh_min,
+                        &mut mesh_max,
+                    );
+
+                    let cropped_min = mesh_min.max(clip_rect.min.to_vec2());
+                    let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
+                    let clip_rect = egui::Rect {
+                        min: Pos2::ZERO,
+                        max: (cropped_max - cropped_min).to_pos2(),
+                    };
+
+                    let hash = {
+                        let mut hasher = Hash32::new_fnv();
+
+                        hasher.hash_wrap(clip_rect.min.x.to_bits());
+                        hasher.hash_wrap(clip_rect.min.y.to_bits());
+                        hasher.hash_wrap(clip_rect.max.x.to_bits());
+                        hasher.hash_wrap(clip_rect.max.y.to_bits());
+                        hasher.hash_wrap(match px_mesh.texture_id {
+                            egui::TextureId::Managed(id) => id as u32,
+                            egui::TextureId::User(id) => id as u32 + 9358476,
+                        });
+                        for ind in &px_mesh.indices {
+                            let v = px_mesh.vertices[*ind as usize];
+
+                            // Tried to do this to avoid full redraws when moving a window but it was resulting in some
+                            // meshes to be matches incorrectly in the ui gradient portion of the egui color test:
+                            //let pos = v.pos - cropped_min;
+
+                            // It's much faster to not wrap for every field. General ordering should be sufficiently preserved.
+                            hasher.hash(v.pos.x.to_bits());
+                            hasher.hash(v.pos.y.to_bits());
+                            hasher.hash(v.uv.x.to_bits());
+                            hasher.hash(v.uv.y.to_bits());
+                            hasher.hash(u32::from_le_bytes(v.color.to_array()));
+                            hasher.fnv_wrap();
+                        }
+                        hasher.hash_wrap(px_mesh.indices.len() as u32);
+                        hasher.finalize()
+                    };
+
+                    if self.cached_primitives.contains_key(&hash) {
+                        return CacheUpdate::CacheReuse(CacheReuse {
+                            hash,
+                            seen_this_frame: true,
+                            z_order: prim_idx,
+                            min_x: cropped_min.x as usize,
+                            min_y: cropped_min.y as usize,
+                            rendered_this_frame: false,
+                        });
+                    } else {
+                        let width = (cropped_max.x - cropped_min.x + 0.5) as usize;
+                        let height = (cropped_max.y - cropped_min.y + 0.5) as usize;
+
+                        if width > 8192 || height > 8192 {
+                            // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
+                            return CacheUpdate::None;
+                        }
+
+                        if width == 0 || height == 0 {
+                            return CacheUpdate::None;
+                        }
+
+                        let render_in_low_precision = width > 4096 || height > 4096;
+
+                        let mut prim = CachedPrimitive::new(
+                            cropped_min.x as usize,
+                            cropped_min.y as usize,
+                            width,
+                            height,
+                            prim_idx,
+                        );
+                        let mut buffer_ref = BufferMutRef {
+                            data: &mut prim.buffer,
+                            width,
+                            height,
+                            width_extent: width - 1,
+                            height_extent: height - 1,
+                        };
+
+                        let offset = -vec2(cropped_min.x.floor(), cropped_min.y.floor());
+
+                        // TODO perf: straightforward to multi-thread checking hash and render since the render targets are separate.
+                        if render_in_low_precision {
+                            // Seems to not be an issue in direct draw? Seems like a bug.
+                            draw_egui_mesh::<2>(
+                                &self.textures,
+                                &mut buffer_ref,
+                                &clip_rect,
+                                &px_mesh,
+                                offset,
+                                self.allow_raster_opt,
+                                self.convert_tris_to_rects,
+                                #[cfg(feature = "raster_stats")]
+                                &mut self.stats,
+                            );
+                        } else {
+                            draw_egui_mesh::<8>(
+                                &self.textures,
+                                &mut buffer_ref,
+                                &clip_rect,
+                                &px_mesh,
+                                offset,
+                                self.allow_raster_opt,
+                                self.convert_tris_to_rects,
+                                #[cfg(feature = "raster_stats")]
+                                &mut self.stats,
+                            );
+                        }
+                        self.prims_updated_this_frame += 1;
+                        prim.update_occupied_tiles(self.tiles_dim[0], self.tiles_dim[1]);
+                        return CacheUpdate::New(hash, prim);
+                    }
+                },
+            )
+            .collect::<Vec<_>>();
+
+        updates.into_iter().for_each(|update| match update {
+            CacheUpdate::CacheReuse(cache_reuse) => {
+                if let Some(cached_primitive) = self.cached_primitives.get_mut(&cache_reuse.hash) {
+                    cached_primitive.seen_this_frame = cache_reuse.seen_this_frame;
+                    cached_primitive.z_order = cache_reuse.z_order;
+                    cached_primitive.min_x = cache_reuse.min_x;
+                    cached_primitive.min_y = cache_reuse.min_y;
+                    cached_primitive.rendered_this_frame = cache_reuse.rendered_this_frame;
                 }
-            },
-        );
-
-        for update in cache_updates {
-            if let Some(cached_primitive) = self.cached_primitives.get_mut(&update.hash) {
-                cached_primitive.seen_this_frame = update.seen_this_frame;
-                cached_primitive.z_order = update.z_order;
-                cached_primitive.min_x = update.min_x;
-                cached_primitive.min_y = update.min_y;
-                cached_primitive.rendered_this_frame = update.rendered_this_frame;
             }
-        }
-
-        for (hash, prim) in new_cached_prims {
-            self.cached_primitives.insert(hash, prim);
-        }
+            CacheUpdate::New(hash, prim) => {
+                self.cached_primitives.insert(hash, prim);
+            }
+            CacheUpdate::None => return,
+        });
     }
 
     fn update_canvas_from_cached(&mut self) {
