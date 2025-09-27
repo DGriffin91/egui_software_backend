@@ -709,29 +709,35 @@ impl EguiSoftwareRender {
                         height,
                     );
 
-                    for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
-                        if mask & Self::OCCUPIED_TILE_MASK == 0 {
-                            continue;
-                        }
+                    let dirty_tile_row_start = tile_row * self.tiles_dim[0];
+                    let dirty_tile_row_end = dirty_tile_row_start + self.tiles_dim[0];
 
-                        let tile_y = tile_idx / self.tiles_dim[0];
+                    self.dirty_tiles
+                        .iter()
+                        .enumerate()
+                        .skip(dirty_tile_row_start)
+                        .take(dirty_tile_row_end)
+                        .filter(|(_, mask)| **mask & Self::DIRTY_TILE_MASK != 0)
+                        .map(|(idx, _)| idx)
+                        .for_each(|tile_idx| {
+                            let tile_y = tile_idx / self.tiles_dim[0];
 
-                        if tile_y != tile_row {
-                            continue;
-                        }
-                        let canvas_row_offset = tile_row * TILE_SIZE;
+                            if tile_y != tile_row {
+                                return;
+                            }
+                            let canvas_row_offset = tile_row * TILE_SIZE;
 
-                        let tile_x = tile_idx % self.tiles_dim[0];
+                            let tile_x = tile_idx % self.tiles_dim[0];
 
-                        update_canvas_tile(
-                            &sorted_prim_cache,
-                            canvas_tile_row,
-                            tile_x,
-                            tile_y,
-                            full_height,
-                            canvas_row_offset,
-                        );
-                    }
+                            update_canvas_tile(
+                                &sorted_prim_cache,
+                                canvas_tile_row,
+                                tile_x,
+                                tile_y,
+                                full_height,
+                                canvas_row_offset,
+                            );
+                        });
                 });
         }
 
@@ -741,7 +747,7 @@ impl EguiSoftwareRender {
                 .dirty_tiles
                 .iter()
                 .enumerate()
-                .filter(|(_, t)| **t & Self::DIRTY_TILE_MASK != 0)
+                .filter(|(_, mask)| **mask & Self::DIRTY_TILE_MASK != 0)
                 .map(|(idx, _)| idx)
             {
                 let tile_x = tile_idx % self.tiles_dim[0];
