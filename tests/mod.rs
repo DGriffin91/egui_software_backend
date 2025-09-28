@@ -18,12 +18,6 @@ mod tests {
             let mut egui_demo = egui_demo_lib::DemoWindows::default();
             move |ctx: &egui::Context| {
                 egui_demo.ui(&ctx);
-
-                // egui::CentralPanel::default().show(ctx, |ui| {
-                //     #[allow(const_item_mutation)]
-                //     ui.color_edit_button_srgba(&mut egui::Color32::TRANSPARENT);
-                //     ui.end_row();
-                // });
             }
         }
 
@@ -41,55 +35,47 @@ mod tests {
                 .save(format!("tests/tmp/gpu_px_per_point{px_per_point}.png"))
                 .unwrap();
 
-            for use_cache in [false, true] {
-                for allow_raster_opt in [false, true] {
-                    for convert_tris_to_rects in [false, true] {
-                        // --- Render on CPU
-                        let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA)
-                            .with_allow_raster_opt(allow_raster_opt)
-                            .with_convert_tris_to_rects(convert_tris_to_rects)
-                            .with_caching(use_cache);
+            for allow_raster_opt in [false, true] {
+                // --- Render on CPU
+                let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::RGBA)
+                    .with_allow_raster_opt(allow_raster_opt);
 
-                        let mut harness = HarnessBuilder::default()
-                            .with_size(RESOLUTION)
-                            .with_pixels_per_point(px_per_point)
-                            .renderer(egui_software_render)
-                            .build(app());
-                        harness.run();
-                        let cpu_render_image = harness.render().unwrap();
+                let mut harness = HarnessBuilder::default()
+                    .with_size(RESOLUTION)
+                    .with_pixels_per_point(px_per_point)
+                    .renderer(egui_software_render)
+                    .build(app());
+                harness.run();
+                let cpu_render_image = harness.render().unwrap();
 
-                        let _ = std::fs::create_dir("tests/tmp/");
+                let _ = std::fs::create_dir("tests/tmp/");
 
-                        let name = format!(
-                            "px_per_pt {px_per_point}, use_cache {use_cache}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
-                        );
+                let name = format!("px_per_pt {px_per_point}, raster_opt {allow_raster_opt}");
 
-                        if let Some((pixels_failed, diff_image)) = dify(
-                            &gpu_render_image,
-                            &cpu_render_image,
-                            0.6, // egui's default is 0.6
-                        ) {
-                            if pixels_failed > failed_px_count_thresold {
-                                diff_image
-                                    .save(format!("tests/tmp/diff_{name} - FAIL.png"))
-                                    .unwrap();
-                                cpu_render_image
-                                    .save(format!("tests/tmp/cpu_{name} - FAIL.png"))
-                                    .unwrap();
-                                panic!("pixels_failed {pixels_failed}: {name}")
-                            } else {
-                                diff_image
-                                    .save(format!("tests/tmp/diff_{name}.png"))
-                                    .unwrap();
-                                cpu_render_image
-                                    .save(format!("tests/tmp/cpu_{name}.png"))
-                                    .unwrap();
-                            }
-                        } else {
-                            println!("excellent match, no dify diff: {name}")
-                        };
+                if let Some((pixels_failed, diff_image)) = dify(
+                    &gpu_render_image,
+                    &cpu_render_image,
+                    0.6, // egui's default is 0.6
+                ) {
+                    if pixels_failed > failed_px_count_thresold {
+                        diff_image
+                            .save(format!("tests/tmp/diff_{name} - FAIL.png"))
+                            .unwrap();
+                        cpu_render_image
+                            .save(format!("tests/tmp/cpu_{name} - FAIL.png"))
+                            .unwrap();
+                        panic!("pixels_failed {pixels_failed}: {name}")
+                    } else {
+                        diff_image
+                            .save(format!("tests/tmp/diff_{name}.png"))
+                            .unwrap();
+                        cpu_render_image
+                            .save(format!("tests/tmp/cpu_{name}.png"))
+                            .unwrap();
                     }
-                }
+                } else {
+                    println!("excellent match, no dify diff: {name}")
+                };
             }
         }
     }

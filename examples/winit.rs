@@ -16,21 +16,11 @@ use crate::winit_app::WinitApp;
 mod winit_app;
 
 #[derive(FromArgs, Copy, Clone)]
-/// `bevy` example
+/// `winit` example
 struct Args {
-    /// disable raster optimizations. Rasterize everything with triangles, always calculate vertex colors, uvs, use
-    /// bilinear everywhere, etc... Things should look the same with this set to true while rendering faster.
+    /// disable raster optimizations. Rasterize everything with triangles, always calculate vertex colors, uvs
     #[argh(switch)]
     no_opt: bool,
-
-    /// disable attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
-    /// Things should look the same with this set to true while rendering faster.
-    #[argh(switch)]
-    no_rect: bool,
-
-    /// render directly into buffer without cache. This is much slower and mainly intended for testing.
-    #[argh(switch)]
-    direct: bool,
 }
 
 struct AppState {
@@ -44,10 +34,8 @@ fn main() {
 
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
     let mut egui_color_test = ColorTest::default();
-    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA)
-        .with_allow_raster_opt(!args.no_opt)
-        .with_convert_tris_to_rects(!args.no_rect)
-        .with_caching(!args.direct);
+    let mut egui_software_render =
+        EguiSoftwareRender::new(ColorFieldOrder::BGRA).with_allow_raster_opt(!args.no_opt);
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -135,11 +123,6 @@ fn main() {
                             egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                                 egui_color_test.ui(ui);
                             });
-                        });
-
-                        #[cfg(feature = "raster_stats")]
-                        egui::Window::new("Stats").show(ctx, |ui| {
-                            egui_software_render.stats.render(ui);
                         });
                     });
 

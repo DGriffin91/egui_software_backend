@@ -1,13 +1,13 @@
 use crate::math::vec4::{Vec4, vec4};
 
 #[inline(always)]
-pub fn vec4_to_u8x4(v: &Vec4) -> [u8; 4] {
+pub(crate) fn vec4_to_u8x4(v: &Vec4) -> [u8; 4] {
     let v = v.clamp(Vec4::ZERO, Vec4::ONE) * 255.0 + 0.5;
     [v.x as u8, v.y as u8, v.z as u8, v.w as u8]
 }
 
 #[inline(always)]
-pub fn u8x4_to_vec4(v: &[u8; 4]) -> Vec4 {
+pub(crate) fn u8x4_to_vec4(v: &[u8; 4]) -> Vec4 {
     vec4(
         v[0] as f32 / 255.0,
         v[1] as f32 / 255.0,
@@ -16,25 +16,20 @@ pub fn u8x4_to_vec4(v: &[u8; 4]) -> Vec4 {
     )
 }
 
-// https://github.com/emilk/egui/blob/226bdc4c5bbb2230fb829e01b3fcb0460e741b34/crates/egui/src/lib.rs#L162
-#[inline(always)]
-#[allow(dead_code)]
-pub fn egui_blend(src: &Vec4, dst: &Vec4) -> Vec4 {
-    dst * (1.0 - src.w) + src
-}
-
 /// transforms 4 bytes RGBA into 8 bytes 0R0G0B0A
 #[inline(always)]
-pub fn as_color16(color: u32) -> u64 {
+pub(crate) fn as_color16(color: u32) -> u64 {
     let x = color as u64;
     let x = ((x & 0xFFFF0000) << 16) | (x & 0xFFFF);
     ((x & 0x0000FF000000FF00) << 8) | (x & 0x000000FF000000FF)
 }
 
+// https://github.com/emilk/egui/blob/226bdc4c5bbb2230fb829e01b3fcb0460e741b34/crates/egui/src/lib.rs#L162
+//  dst * (1.0 - src.w) + src
 // https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[inline(always)]
-pub fn egui_blend_u8(src: [u8; 4], mut dst: [u8; 4]) -> [u8; 4] {
+pub(crate) fn egui_blend_u8(src: [u8; 4], mut dst: [u8; 4]) -> [u8; 4] {
     let a = src[3];
     if a == 255 {
         return src;
@@ -63,13 +58,13 @@ pub fn egui_blend_u8(src: [u8; 4], mut dst: [u8; 4]) -> [u8; 4] {
 }
 
 #[inline(always)]
-pub fn swizzle_rgba_bgra(a: [u8; 4]) -> [u8; 4] {
+pub(crate) fn swizzle_rgba_bgra(a: [u8; 4]) -> [u8; 4] {
     [a[2], a[1], a[0], a[3]]
 }
 
 // TODO perf: optimize
 #[inline(always)]
-pub fn unorm_mult4x4(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
+pub(crate) fn unorm_mult4x4(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
     [
         unorm_mult(a[0] as u32, b[0] as u32) as u8,
         unorm_mult(a[1] as u32, b[1] as u32) as u8,
@@ -81,7 +76,7 @@ pub fn unorm_mult4x4(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
 #[inline(always)]
 // Jerry R. Van Aken - Alpha Blending with No Division Operations https://arxiv.org/pdf/2202.02864
 // Input should be 0..255, is multiplied as if it were 0..1f
-pub fn unorm_mult(mut a: u32, b: u32) -> u32 {
+pub(crate) fn unorm_mult(mut a: u32, b: u32) -> u32 {
     a *= b;
     a += 0x80;
     a += a >> 8;

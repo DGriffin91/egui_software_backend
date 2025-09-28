@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Mul, Sub};
+use core::ops::{Add, AddAssign, Mul, Sub};
 
 use egui::Vec2;
 
@@ -12,7 +12,7 @@ use crate::math::i64vec2::{I64Vec2, i64vec2};
 /// sp for subpixel space (unit fraction of screen pixel)
 /// Here for reference for raster without using span.
 #[allow(unused)]
-pub fn raster_tri<const SUBPIX_BITS: i32>(
+pub(crate) fn raster_tri<const SUBPIX_BITS: i32>(
     ss_bounds: [I64Vec2; 2],
     ss_tri: &[Vec2; 3],
     // ss_x, ss_y
@@ -37,7 +37,7 @@ pub fn raster_tri<const SUBPIX_BITS: i32>(
 }
 
 /// returns: ss_min, ss_max, sp_inv_area, stepper
-pub fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
+pub(crate) fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
     ss_bounds: [I64Vec2; 2],
     ss_tri: &[Vec2; 3],
 ) -> Option<(I64Vec2, I64Vec2, f32, SingleStepper)> {
@@ -81,25 +81,25 @@ pub fn stepper_from_ss_tri_backface_cull<const SUBPIX_BITS: i32>(
 }
 
 #[inline(always)]
-pub fn is_top_left(a: &I64Vec2, b: &I64Vec2) -> bool {
+pub(crate) fn is_top_left(a: &I64Vec2, b: &I64Vec2) -> bool {
     let dy = b.y - a.y;
     (dy > 0) || (dy == 0 && (b.x - a.x) < 0)
 }
 
-pub struct SingleStepper {
-    pub e12: SingleStep,
-    pub e20: SingleStep,
-    pub e01: SingleStep,
-    pub w0: i64,
-    pub w1: i64,
-    pub w2: i64,
-    pub bias0: i64,
-    pub bias1: i64,
-    pub bias2: i64,
+pub(crate) struct SingleStepper {
+    pub(crate) e12: SingleStep,
+    pub(crate) e20: SingleStep,
+    pub(crate) e01: SingleStep,
+    pub(crate) w0: i64,
+    pub(crate) w1: i64,
+    pub(crate) w2: i64,
+    pub(crate) bias0: i64,
+    pub(crate) bias1: i64,
+    pub(crate) bias2: i64,
 }
 
 impl SingleStepper {
-    pub fn new(
+    pub(crate) fn new(
         sp0: &I64Vec2,
         sp1: &I64Vec2,
         sp2: &I64Vec2,
@@ -120,7 +120,7 @@ impl SingleStepper {
     }
 
     #[inline(always)]
-    pub fn inside_tri_pos_area(&self) -> bool {
+    pub(crate) fn inside_tri_pos_area(&self) -> bool {
         // None w are negative
         let m = ((self.w0 + self.bias0) as u64)
             | ((self.w1 + self.bias1) as u64)
@@ -129,21 +129,21 @@ impl SingleStepper {
     }
 
     #[inline(always)]
-    pub fn row_step(&mut self) {
+    pub(crate) fn row_step(&mut self) {
         self.e12.row += self.e12.step.y;
         self.e20.row += self.e20.step.y;
         self.e01.row += self.e01.step.y;
     }
 
     #[inline(always)]
-    pub fn col_step(&mut self) {
+    pub(crate) fn col_step(&mut self) {
         self.w0 += self.e12.step.x;
         self.w1 += self.e20.step.x;
         self.w2 += self.e01.step.x;
     }
 
     #[inline(always)]
-    pub fn row_start(&mut self) {
+    pub(crate) fn row_start(&mut self) {
         self.w0 = self.e12.row;
         self.w1 = self.e20.row;
         self.w2 = self.e01.row;
@@ -152,7 +152,7 @@ impl SingleStepper {
     /// Generate stepper for float attribute (like vertex UVs or vertex colors)
     /// Depends on SingleStepper's initial state. Make sure to run before using SingleStepper::row_step() or
     /// SingleStepper::col_step()
-    pub fn attr<T>(&self, attr: &[T; 3], sp_inv_area: f32) -> AttributeStepper<T>
+    pub(crate) fn attr<T>(&self, attr: &[T; 3], sp_inv_area: f32) -> AttributeStepper<T>
     where
         T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
     {
@@ -189,14 +189,14 @@ impl SingleStepper {
     }
 }
 
-pub struct SingleStep {
-    pub step: I64Vec2,
-    pub row: i64,
+pub(crate) struct SingleStep {
+    pub(crate) step: I64Vec2,
+    pub(crate) row: i64,
 }
 
 impl SingleStep {
     #[inline(always)]
-    pub fn new(sp0: &I64Vec2, sp1: &I64Vec2, sp_min_p: &I64Vec2, subpix: i64) -> Self {
+    pub(crate) fn new(sp0: &I64Vec2, sp1: &I64Vec2, sp_min_p: &I64Vec2, subpix: i64) -> Self {
         let a = sp0.y - sp1.y;
         let b = sp1.x - sp0.x;
         let c = (sp0.x) * (sp1.y) - (sp0.y) * (sp1.x);
@@ -209,12 +209,12 @@ impl SingleStep {
 }
 
 #[inline(always)]
-pub fn orient2d(a: &I64Vec2, b: &I64Vec2, c: &I64Vec2) -> i64 {
+pub(crate) fn orient2d(a: &I64Vec2, b: &I64Vec2, c: &I64Vec2) -> i64 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
 
 #[inline(always)]
-pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
+pub(crate) fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
     let b0 = (w0 as f32) * inv_area;
     let b1 = (w1 as f32) * inv_area;
     let b2 = 1.0 - b0 - b1;
@@ -222,14 +222,14 @@ pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
 }
 
 #[derive(Default)]
-pub struct AttributeStepper<T>
+pub(crate) struct AttributeStepper<T>
 where
     T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
 {
-    pub step_x: T,
-    pub step_y: T,
-    pub row: T,
-    pub attr: T,
+    pub(crate) step_x: T,
+    pub(crate) step_y: T,
+    pub(crate) row: T,
+    pub(crate) attr: T,
 }
 
 impl<T> AttributeStepper<T>
@@ -237,17 +237,17 @@ where
     T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
 {
     #[inline(always)]
-    pub fn row_step(&mut self) {
+    pub(crate) fn row_step(&mut self) {
         self.row += self.step_y;
     }
 
     #[inline(always)]
-    pub fn col_step(&mut self) {
+    pub(crate) fn col_step(&mut self) {
         self.attr += self.step_x;
     }
 
     #[inline(always)]
-    pub fn row_start(&mut self) {
+    pub(crate) fn row_start(&mut self) {
         self.attr = self.row;
     }
 }
