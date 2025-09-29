@@ -27,6 +27,8 @@ mod tests {
             }
         }
 
+        let _ = std::fs::create_dir("tests/tmp/");
+
         // egui's failed_px_count_thresold default is 0
         for (px_per_point, failed_px_count_thresold) in [(1.0, 1), (1.5, 15)] {
             // --- Render on GPU
@@ -57,8 +59,6 @@ mod tests {
                             .build(app());
                         harness.run();
                         let cpu_render_image = harness.render().unwrap();
-
-                        let _ = std::fs::create_dir("tests/tmp/");
 
                         let name = format!(
                             "px_per_pt {px_per_point}, use_cache {use_cache}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
