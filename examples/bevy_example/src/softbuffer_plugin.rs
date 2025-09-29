@@ -54,10 +54,7 @@ pub fn clear(mut buffer: NonSendMut<FrameSurface>, clear_color: Res<ClearColor>)
         return;
     }
     let mut buffer = buffer.surface.buffer_mut().unwrap();
-    let clear_color = rgba_to_u32(clear_color.0.to_srgba().to_vec4());
-    for b in buffer.iter_mut() {
-        *b = clear_color;
-    }
+    buffer.fill(rgba_to_u32(clear_color.0.to_srgba().to_vec4()));
 }
 
 pub fn present(mut buffer: NonSendMut<FrameSurface>) {
