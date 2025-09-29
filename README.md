@@ -5,7 +5,7 @@
 ```rs
 let ctx = egui::Context::default();
 let mut demo = egui_demo_lib::DemoWindows::default();
-let mut sw_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA);
+let mut sw_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra);
 
 let out = ctx.run(raw_input, |ctx| {
     demo.ui(ctx);
