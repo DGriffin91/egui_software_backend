@@ -237,11 +237,7 @@ impl EguiSoftwareRender {
                 .enumerate()
                 .for_each(|(tile_row, tile_height_row)| {
                     let height = tile_height_row.len() / width; // Might be less than TILE_SIZE
-                    let buffer_tile_row = &mut BufferMutRef::new(
-                        bytemuck::cast_slice_mut(tile_height_row),
-                        width,
-                        height,
-                    );
+                    let buffer_tile_row = &mut BufferMutRef::new(tile_height_row, width, height);
 
                     for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
                         if mask & Self::OCCUPIED_TILE_MASK == 0 {
@@ -695,11 +691,7 @@ impl EguiSoftwareRender {
                 .enumerate()
                 .for_each(|(tile_row, tile_height_row)| {
                     let height = tile_height_row.len() / width; // Might be less than TILE_SIZE
-                    let canvas_tile_row = &mut BufferMutRef::new(
-                        bytemuck::cast_slice_mut(tile_height_row),
-                        width,
-                        height,
-                    );
+                    let canvas_tile_row = &mut BufferMutRef::new(tile_height_row, width, height);
 
                     let dirty_tile_row_start = tile_row * self.tiles_dim[0];
                     let dirty_tile_row_end = dirty_tile_row_start + self.tiles_dim[0];
