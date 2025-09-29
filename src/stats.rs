@@ -1,4 +1,8 @@
-use std::{collections::HashMap, time::Instant};
+use crate::alloc::string::ToString;
+use alloc::format;
+use alloc::vec::Vec;
+use egui::ahash::HashMap;
+use std::time::Instant;
 
 #[allow(unused_imports)]
 use egui::{Ui, Vec2, Vec2b};

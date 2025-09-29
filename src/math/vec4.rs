@@ -1,8 +1,8 @@
 // This exists just to avoid bringing in glam or similar since egui doesn't.
 // Based on emath Vec2
 
-use std::fmt;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::fmt;
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -259,7 +259,7 @@ impl Vec4 {
     }
 }
 
-impl std::ops::Index<usize> for Vec4 {
+impl core::ops::Index<usize> for Vec4 {
     type Output = f32;
 
     #[inline(always)]
@@ -274,7 +274,7 @@ impl std::ops::Index<usize> for Vec4 {
     }
 }
 
-impl std::ops::IndexMut<usize> for Vec4 {
+impl core::ops::IndexMut<usize> for Vec4 {
     #[inline(always)]
     fn index_mut(&mut self, index: usize) -> &mut f32 {
         match index {
@@ -579,7 +579,7 @@ mod test {
     #[test]
     fn test_vec4_normalized() {
         fn generate_spiral(n: usize, start: Vec4, end: Vec4) -> impl Iterator<Item = Vec4> {
-            let angle_step = 2.0 * std::f32::consts::PI / n as f32;
+            let angle_step = 2.0 * core::f32::consts::PI / n as f32;
             let radius_step = (end.length() - start.length()) / n as f32;
 
             (0..n).map(move |i| {

@@ -1,3 +1,4 @@
+use alloc::{string::String, vec, vec::Vec};
 use egui::TexturesDelta;
 use egui_kittest::TestRenderer;
 use image::ImageBuffer;
@@ -31,7 +32,7 @@ impl TestRenderer for EguiSoftwareRender {
             output.pixels_per_point,
         );
 
-        Ok(ImageBuffer::<image::Rgba<u8>, std::vec::Vec<_>>::from_raw(
+        Ok(ImageBuffer::<image::Rgba<u8>, Vec<_>>::from_raw(
             width as u32,
             height as u32,
             buffer.iter().flatten().cloned().collect::<Vec<_>>(),

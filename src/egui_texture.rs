@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use egui::{Color32, TextureFilter, TextureOptions, Vec2, vec2};
 
 use crate::{

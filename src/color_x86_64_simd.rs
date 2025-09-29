@@ -1,4 +1,4 @@
-use std::arch::x86_64::*;
+use core::arch::x86_64::*;
 
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]

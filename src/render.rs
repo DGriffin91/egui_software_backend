@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use egui::{Pos2, Vec2, epaint::Vertex, vec2};
+use egui::{Pos2, Vec2, ahash::HashMap, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,

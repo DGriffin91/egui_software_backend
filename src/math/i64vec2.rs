@@ -22,7 +22,7 @@ impl I64Vec2 {
     }
 }
 
-impl std::ops::Mul<Self> for I64Vec2 {
+impl core::ops::Mul<Self> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn mul(self, rhs: Self) -> Self {
@@ -30,7 +30,7 @@ impl std::ops::Mul<Self> for I64Vec2 {
     }
 }
 
-impl std::ops::Add<Self> for I64Vec2 {
+impl core::ops::Add<Self> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn add(self, rhs: Self) -> Self {
@@ -38,7 +38,7 @@ impl std::ops::Add<Self> for I64Vec2 {
     }
 }
 
-impl std::ops::Sub<Self> for I64Vec2 {
+impl core::ops::Sub<Self> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn sub(self, rhs: Self) -> Self {
@@ -46,7 +46,7 @@ impl std::ops::Sub<Self> for I64Vec2 {
     }
 }
 
-impl std::ops::Mul<i64> for I64Vec2 {
+impl core::ops::Mul<i64> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn mul(self, rhs: i64) -> Self {
@@ -54,7 +54,7 @@ impl std::ops::Mul<i64> for I64Vec2 {
     }
 }
 
-impl std::ops::Add<i64> for I64Vec2 {
+impl core::ops::Add<i64> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn add(self, rhs: i64) -> Self {
@@ -62,7 +62,7 @@ impl std::ops::Add<i64> for I64Vec2 {
     }
 }
 
-impl std::ops::Sub<i64> for I64Vec2 {
+impl core::ops::Sub<i64> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn sub(self, rhs: i64) -> Self {
@@ -70,7 +70,7 @@ impl std::ops::Sub<i64> for I64Vec2 {
     }
 }
 
-impl std::ops::Shr<u32> for I64Vec2 {
+impl core::ops::Shr<u32> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn shr(self, rhs: u32) -> Self {
@@ -78,7 +78,7 @@ impl std::ops::Shr<u32> for I64Vec2 {
     }
 }
 
-impl std::ops::Shl<u32> for I64Vec2 {
+impl core::ops::Shl<u32> for I64Vec2 {
     type Output = Self;
     #[inline(always)]
     fn shl(self, rhs: u32) -> Self {

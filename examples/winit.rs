@@ -1,11 +1,12 @@
 // Based on: https://github.com/rust-windowing/softbuffer/blob/046de9228d89369151599f3f50dc4b75bd5e522b/examples/winit.rs
 
 use argh::FromArgs;
+use core::num::NonZeroU32;
+use core::time::Duration;
 use egui_demo_lib::ColorTest;
 use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
-use std::num::NonZeroU32;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
 use winit::window::Window;

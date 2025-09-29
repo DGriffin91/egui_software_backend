@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Mul, Sub};
+use core::ops::{Add, AddAssign, Mul, Sub};
 
 use egui::Vec2;
 

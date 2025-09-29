@@ -1,6 +1,14 @@
-use std::{borrow::Cow, collections::HashMap, ops::Range};
+#![no_std]
+extern crate alloc;
 
-use egui::{Color32, Mesh, Pos2, Vec2, vec2};
+#[cfg(feature = "std")]
+extern crate std;
+
+use core::ops::Range;
+
+use alloc::{borrow::Cow, vec, vec::Vec};
+
+use egui::{Color32, Mesh, Pos2, Vec2, ahash::HashMap, vec2};
 
 #[cfg(feature = "raster_stats")]
 use crate::stats::RasterStats;
@@ -26,9 +34,9 @@ pub mod test_render;
 
 #[inline(always)]
 pub(crate) fn sse41() -> bool {
-    #[cfg(target_arch = "x86_64")]
-    return is_x86_feature_detected!("sse4.1");
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    return std::is_x86_feature_detected!("sse4.1");
+    #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
     return false;
 }
 
