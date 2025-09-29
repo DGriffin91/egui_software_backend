@@ -94,7 +94,7 @@ pub struct FrameBuffer<'a> {
 }
 
 impl<'a> FrameBuffer<'a> {
-    pub fn as_mut(&mut self) -> BufferMutRef {
+    pub fn as_mut(&mut self) -> BufferMutRef<'_> {
         BufferMutRef {
             data: bytemuck::cast_slice_mut(&mut self.buffer[..]),
             width: self.width,
@@ -104,7 +104,7 @@ impl<'a> FrameBuffer<'a> {
         }
     }
 
-    pub fn as_ref(&self) -> BufferRef {
+    pub fn as_ref(&self) -> BufferRef<'_> {
         BufferRef {
             data: bytemuck::cast_slice(&self.buffer[..]),
             width: self.width,
@@ -115,6 +115,7 @@ impl<'a> FrameBuffer<'a> {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn startup(
     world: &mut World,
     // in 0.17 `NonSendMut<WinitWindows>` will be bevy::winit::WINIT_WINDOWS

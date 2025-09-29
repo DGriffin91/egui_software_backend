@@ -118,7 +118,6 @@ fn egui_render(
     mut surface: NonSendMut<FrameSurface>,
     mut egui_software_render: ResMut<EguiSoftwareRenderResource>,
 ) {
-    let args: Args = argh::from_env();
     let Some(mut frame_buffer) = surface.buffer() else {
         return;
     };
