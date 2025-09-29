@@ -61,14 +61,15 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
             }
             let ss_start = (ss_min.x + start) as usize;
             let ss_end = (ss_min.x + end) as usize;
-            #[cfg(target_arch = "x86_64")]
+
             if sse41 && alpha_blend && !vert_uvs_vary {
-                let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
-                use crate::color_x86_64_simd::{
-                    egui_blend_u8_slice_one_src_sse41, egui_blend_u8_slice_one_src_tinted_fn_sse41,
-                };
-                // SAFETY: we first check sse41() outside the loop
-                unsafe {
+                #[cfg(target_arch = "x86_64")]
+                {
+                    let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
+                    use crate::color_x86_64_simd::{
+                        egui_blend_u8_slice_one_src_sse41,
+                        egui_blend_u8_slice_one_src_tinted_fn_sse41,
+                    };
                     if vert_col_vary {
                         egui_blend_u8_slice_one_src_tinted_fn_sse41(
                             draw.const_tex_color_u8x4,

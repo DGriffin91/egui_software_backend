@@ -44,13 +44,10 @@ pub fn draw_rect(
             if alpha_blend {
                 if sse41 {
                     #[cfg(target_arch = "x86_64")]
-                    // SAFETY: we first check sse41() outside the loop
-                    unsafe {
-                        crate::color_x86_64_simd::egui_blend_u8_slice_one_src_sse41(
-                            const_tri_color_u8x4,
-                            buffer.get_mut_span(min_x, max_x, y),
-                        )
-                    }
+                    crate::color_x86_64_simd::egui_blend_u8_slice_one_src_sse41(
+                        const_tri_color_u8x4,
+                        buffer.get_mut_span(min_x, max_x, y),
+                    )
                 } else {
                     for pixel in buffer.get_mut_span(min_x, max_x, y) {
                         *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
@@ -110,14 +107,11 @@ pub fn draw_rect(
                 if sse41 {
                     #[cfg(target_arch = "x86_64")]
                     {
-                        // SAFETY: we first check sse41() outside the loop
-                        unsafe {
-                            crate::color_x86_64_simd::egui_blend_u8_slice_tinted_sse41(
-                                src,
-                                draw.const_vert_color_u8x4,
-                                dst,
-                            )
-                        };
+                        crate::color_x86_64_simd::egui_blend_u8_slice_tinted_sse41(
+                            src,
+                            draw.const_vert_color_u8x4,
+                            dst,
+                        )
                     }
                 } else {
                     for (pixel, tex_color) in dst.iter_mut().zip(src) {

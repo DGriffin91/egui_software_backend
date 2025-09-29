@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #![no_std]
 extern crate alloc;
 
@@ -316,8 +317,7 @@ impl EguiSoftwareRender {
             for y in y_start..y_end {
                 let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
                 let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                // SAFETY: we first check sse41() outside the loop
-                unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
+                color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row)
             }
         } else {
             for y in y_start..y_end {
@@ -910,8 +910,7 @@ fn update_canvas_tile(
                 let (canvas_slice, prim_slice) = get_ranges(y);
                 let src_row = &prim_buf.data[prim_slice];
                 let dst_row = &mut canvas.data[canvas_slice];
-                // SAFETY: we first check sse41() outside the loop
-                unsafe { color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row) }
+                color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row)
             }
         } else {
             for y in min_y..max_y {
