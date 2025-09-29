@@ -79,7 +79,7 @@ fn main() {
     if !args.gpu {
         app.add_plugins(SoftBufferPlugin)
             .insert_resource(EguiSoftwareRenderResource(
-                EguiSoftwareRender::new(ColorFieldOrder::BGRA)
+                EguiSoftwareRender::new(ColorFieldOrder::Bgra)
                     .with_allow_raster_opt(!args.no_opt)
                     .with_convert_tris_to_rects(!args.no_rect)
                     .with_caching(!args.direct),

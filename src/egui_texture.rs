@@ -32,8 +32,8 @@ impl EguiTexture {
         let data = pixels
             .iter()
             .map(|p| match field_order {
-                ColorFieldOrder::RGBA => p.to_array(),
-                ColorFieldOrder::BGRA => swizzle_rgba_bgra(p.to_array()),
+                ColorFieldOrder::Rgba => p.to_array(),
+                ColorFieldOrder::Bgra => swizzle_rgba_bgra(p.to_array()),
             })
             .collect::<Vec<_>>();
         let uv_zero_val = data[0];

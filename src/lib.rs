@@ -45,8 +45,8 @@ const TILE_SIZE: usize = 64;
 #[derive(Copy, Clone, Default)]
 pub enum ColorFieldOrder {
     #[default]
-    RGBA,
-    BGRA,
+    Rgba,
+    Bgra,
 }
 
 pub struct EguiSoftwareRender {
@@ -435,8 +435,8 @@ impl EguiSoftwareRender {
             v.pos *= pixels_per_point;
 
             match self.output_field_order {
-                ColorFieldOrder::RGBA => (), // egui uses rgba
-                ColorFieldOrder::BGRA => {
+                ColorFieldOrder::Rgba => (), // egui uses rgba
+                ColorFieldOrder::Bgra => {
                     let d = swizzle_rgba_bgra(v.color.to_array());
                     v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
                 }
@@ -815,8 +815,8 @@ impl EguiSoftwareRender {
                             let src_pos = x + y * size[0];
                             let dest_pos = (x + pos[0]) + (y + pos[1]) * texture.width;
                             texture.data[dest_pos] = match self.output_field_order {
-                                ColorFieldOrder::RGBA => pixels[src_pos].to_array(),
-                                ColorFieldOrder::BGRA => {
+                                ColorFieldOrder::Rgba => pixels[src_pos].to_array(),
+                                ColorFieldOrder::Bgra => {
                                     swizzle_rgba_bgra(pixels[src_pos].to_array())
                                 }
                             };

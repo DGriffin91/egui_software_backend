@@ -45,7 +45,7 @@ fn main() {
 
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
     let mut egui_color_test = ColorTest::default();
-    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::BGRA)
+    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(!args.no_opt)
         .with_convert_tris_to_rects(!args.no_rect)
         .with_caching(!args.direct);
