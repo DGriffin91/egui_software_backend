@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 egui = { version = "0.32", default-features = false }
-bytemuck = { version = "1.23" }
 strength_reduce = "0.2.4"
 constify = { path = "constify" }
 
