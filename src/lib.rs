@@ -22,7 +22,7 @@ use crate::{
 
 pub(crate) mod color;
 #[cfg(target_arch = "x86_64")]
-pub(crate) mod color_x86_64_simd;
+pub(crate) mod color_sse41;
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
 pub(crate) mod math;
@@ -34,10 +34,29 @@ pub mod stats;
 pub mod test_render;
 
 #[inline(always)]
+#[allow(dead_code)]
 pub(crate) fn sse41() -> bool {
     #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    return std::is_x86_feature_detected!("sse4.1");
+    return std::arch::is_x86_feature_detected!("sse4.1");
     #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
+    return false;
+}
+
+#[inline(always)]
+#[allow(dead_code)]
+pub(crate) fn avx() -> bool {
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    return std::arch::is_x86_feature_detected!("avx");
+    #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
+    return false;
+}
+
+#[inline(always)]
+#[allow(dead_code)]
+pub(crate) fn neon() -> bool {
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
+    return std::arch::is_aarch64_feature_detected!("neon");
+    #[cfg(any(not(target_arch = "aarch64"), not(feature = "std")))]
     return false;
 }
 
@@ -317,7 +336,7 @@ impl EguiSoftwareRender {
             for y in y_start..y_end {
                 let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
                 let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row)
+                color_sse41::egui_blend_u8_slice_sse41(src_row, dst_row)
             }
         } else {
             for y in y_start..y_end {
@@ -909,7 +928,7 @@ fn update_canvas_tile(
                 let (canvas_slice, prim_slice) = get_ranges(y);
                 let src_row = &prim_buf.data[prim_slice];
                 let dst_row = &mut canvas.data[canvas_slice];
-                color_x86_64_simd::egui_blend_u8_slice_sse41(src_row, dst_row)
+                color_sse41::egui_blend_u8_slice_sse41(src_row, dst_row)
             }
         } else {
             for y in min_y..max_y {

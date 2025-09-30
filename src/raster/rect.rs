@@ -16,7 +16,7 @@ pub fn draw_rect(
     #[constify] vert_col_vary: bool,
     #[constify] vert_uvs_vary: bool,
     #[constify] alpha_blend: bool,
-    #[constify] sse41: bool,
+    #[constify] simd: bool,
 ) {
     let const_tri_color_u8x4 = draw.const_tri_color_u8x4;
     let clip_bounds = &draw.clip_bounds;
@@ -42,9 +42,9 @@ pub fn draw_rect(
     if !vert_uvs_vary && !vert_col_vary {
         for y in min_y..max_y {
             if alpha_blend {
-                if sse41 {
+                if simd {
                     #[cfg(target_arch = "x86_64")]
-                    crate::color_x86_64_simd::egui_blend_u8_slice_one_src_sse41(
+                    crate::color_sse41::egui_blend_u8_slice_one_src_sse41(
                         const_tri_color_u8x4,
                         buffer.get_mut_span(min_x, max_x, y),
                     )
@@ -104,10 +104,10 @@ pub fn draw_rect(
                 let dst = &mut buffer.get_mut_span(min_x, max_x, y);
                 let src = &texture.data[tex_start..tex_end];
 
-                if sse41 {
+                if simd {
                     #[cfg(target_arch = "x86_64")]
                     {
-                        crate::color_x86_64_simd::egui_blend_u8_slice_tinted_sse41(
+                        crate::color_sse41::egui_blend_u8_slice_tinted_sse41(
                             src,
                             draw.const_vert_color_u8x4,
                             dst,

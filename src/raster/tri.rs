@@ -19,7 +19,7 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
     #[constify] vert_col_vary: bool,
     #[constify] vert_uvs_vary: bool,
     #[constify] alpha_blend: bool,
-    #[constify] sse41: bool,
+    #[constify] simd: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         SingleStepper::from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
@@ -62,11 +62,11 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
             let ss_start = (ss_min.x + start) as usize;
             let ss_end = (ss_min.x + end) as usize;
 
-            if sse41 && alpha_blend && !vert_uvs_vary {
+            if simd && alpha_blend && !vert_uvs_vary {
                 #[cfg(target_arch = "x86_64")]
                 {
                     let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
-                    use crate::color_x86_64_simd::{
+                    use crate::color_sse41::{
                         egui_blend_u8_slice_one_src_sse41,
                         egui_blend_u8_slice_one_src_tinted_fn_sse41,
                     };

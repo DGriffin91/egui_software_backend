@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 use egui::{Pos2, Vec2, ahash::HashMap, epaint::Vertex, vec2};
 
 use crate::{
@@ -8,10 +9,187 @@ use crate::{
         vec4::Vec4,
     },
     raster::{rect::draw_rect, tri::draw_tri},
-    sse41,
 };
 
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
+    textures: &HashMap<egui::TextureId, EguiTexture>,
+    buffer: &mut BufferMutRef,
+    clip_rect: &egui::Rect,
+    mesh: &egui::Mesh,
+    vert_offset: Vec2,
+    allow_raster_opt: bool,
+    convert_tris_to_rects: bool,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+    stats: &mut crate::stats::RasterStats,
+) {
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    if crate::avx() {
+        unsafe {
+            draw_egui_mesh_sse41::<SUBPIX_BITS>(
+                textures,
+                buffer,
+                clip_rect,
+                mesh,
+                vert_offset,
+                allow_raster_opt,
+                convert_tris_to_rects,
+                #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+                stats,
+            )
+        }
+    } else if crate::sse41() {
+        unsafe {
+            draw_egui_mesh_avx::<SUBPIX_BITS>(
+                textures,
+                buffer,
+                clip_rect,
+                mesh,
+                vert_offset,
+                allow_raster_opt,
+                convert_tris_to_rects,
+                #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+                stats,
+            )
+        }
+    } else {
+        draw_egui_mesh_impl::<SUBPIX_BITS, false>(
+            textures,
+            buffer,
+            clip_rect,
+            mesh,
+            vert_offset,
+            allow_raster_opt,
+            convert_tris_to_rects,
+            #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+            stats,
+        )
+    }
+
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
+    if crate::neon() {
+        unsafe {
+            draw_egui_mesh_neon::<SUBPIX_BITS>(
+                textures,
+                buffer,
+                clip_rect,
+                mesh,
+                vert_offset,
+                allow_raster_opt,
+                convert_tris_to_rects,
+                #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+                stats,
+            )
+        }
+    } else {
+        draw_egui_mesh_impl::<SUBPIX_BITS, false>(
+            textures,
+            buffer,
+            clip_rect,
+            mesh,
+            vert_offset,
+            allow_raster_opt,
+            convert_tris_to_rects,
+            #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+            stats,
+        )
+    }
+
+    #[cfg(not(feature = "std"))]
+    draw_egui_mesh_impl::<SUBPIX_BITS, false>(
+        textures,
+        buffer,
+        clip_rect,
+        mesh,
+        vert_offset,
+        allow_raster_opt,
+        convert_tris_to_rects,
+        #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+        stats,
+    )
+}
+
+#[cfg(all(target_arch = "x86_64", feature = "std"))]
+#[target_feature(enable = "sse4.1")]
+pub fn draw_egui_mesh_sse41<const SUBPIX_BITS: i32>(
+    textures: &HashMap<egui::TextureId, EguiTexture>,
+    buffer: &mut BufferMutRef,
+    clip_rect: &egui::Rect,
+    mesh: &egui::Mesh,
+    vert_offset: Vec2,
+    allow_raster_opt: bool,
+    convert_tris_to_rects: bool,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+    stats: &mut crate::stats::RasterStats,
+) {
+    draw_egui_mesh_impl::<SUBPIX_BITS, true>(
+        textures,
+        buffer,
+        clip_rect,
+        mesh,
+        vert_offset,
+        allow_raster_opt,
+        convert_tris_to_rects,
+        #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+        stats,
+    )
+}
+
+#[cfg(all(target_arch = "x86_64", feature = "std"))]
+#[target_feature(enable = "avx")]
+pub fn draw_egui_mesh_avx<const SUBPIX_BITS: i32>(
+    textures: &HashMap<egui::TextureId, EguiTexture>,
+    buffer: &mut BufferMutRef,
+    clip_rect: &egui::Rect,
+    mesh: &egui::Mesh,
+    vert_offset: Vec2,
+    allow_raster_opt: bool,
+    convert_tris_to_rects: bool,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+    stats: &mut crate::stats::RasterStats,
+) {
+    draw_egui_mesh_impl::<SUBPIX_BITS, true>(
+        textures,
+        buffer,
+        clip_rect,
+        mesh,
+        vert_offset,
+        allow_raster_opt,
+        convert_tris_to_rects,
+        #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+        stats,
+    )
+}
+
+#[cfg(all(target_arch = "aarch64", feature = "std"))]
+#[target_feature(enable = "neon")]
+pub fn draw_egui_mesh_neon<const SUBPIX_BITS: i32>(
+    textures: &HashMap<egui::TextureId, EguiTexture>,
+    buffer: &mut BufferMutRef,
+    clip_rect: &egui::Rect,
+    mesh: &egui::Mesh,
+    vert_offset: Vec2,
+    allow_raster_opt: bool,
+    convert_tris_to_rects: bool,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+    stats: &mut crate::stats::RasterStats,
+) {
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // TODO enable SIMD here once neon backend is implemented
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    draw_egui_mesh_impl::<SUBPIX_BITS, false>(
+        textures,
+        buffer,
+        clip_rect,
+        mesh,
+        vert_offset,
+        allow_raster_opt,
+        convert_tris_to_rects,
+        #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
+        stats,
+    )
+}
+
+pub fn draw_egui_mesh_impl<const SUBPIX_BITS: i32, const SIMD: bool>(
     textures: &HashMap<egui::TextureId, EguiTexture>,
     buffer: &mut BufferMutRef,
     clip_rect: &egui::Rect,
@@ -195,7 +373,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 vert_col_vary,
                 vert_uvs_vary,
                 alpha_blend,
-                sse41(),
+                SIMD,
             );
 
             #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
@@ -209,7 +387,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
                 vert_col_vary,
                 vert_uvs_vary,
                 alpha_blend,
-                sse41(),
+                SIMD,
             );
 
             #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
