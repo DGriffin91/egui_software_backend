@@ -134,15 +134,13 @@ pub fn egui_blend_u8_slice_sse41(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
                 // Load two src pixels
                 let src = src.as_ptr().add(i).cast::<u64>();
                 let src64 = core::ptr::read_unaligned(src);
-                // [0,0,rgba,rgba] -> [rgba,rgba,rgba,rgba]
-                let src128 = _mm_set1_epi64x(src64 as i64);
 
-                let src_simd = _mm_cvtsi64_si128(src64 as i64);
+                let src128 = _mm_cvtsi64_si128(src64 as i64);
                 // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
-                let src_simd = _mm_cvtepu8_epi16(src_simd);
+                let src16 = _mm_cvtepu8_epi16(src128);
 
                 // Broadcast alpha within each pixel's 4 lanes
-                let a_broadcast_lo = _mm_shufflelo_epi16(src_simd, 0b11111111);
+                let a_broadcast_lo = _mm_shufflelo_epi16(src16, 0b11111111);
                 let a_broadcast = _mm_shufflehi_epi16(a_broadcast_lo, 0b11111111);
 
                 // simd_alpha_compl = 255 - A for each lane, per pixel
@@ -210,12 +208,12 @@ pub fn egui_blend_u8_slice_tinted_sse41(src: &[[u8; 4]], tint: [u8; 4], dst: &mu
                 let src = src.as_ptr().add(i).cast::<u64>();
                 let src64 = core::ptr::read_unaligned(src);
 
-                let src_simd = _mm_cvtsi64_si128(src64 as i64);
+                let src_128 = _mm_cvtsi64_si128(src64 as i64);
                 // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
-                let src_simd = _mm_cvtepu8_epi16(src_simd);
+                let src_16 = _mm_cvtepu8_epi16(src_128);
 
                 // src_tinted = (src16 * vert16 + 128) * 257 >> 16  (rounded /255)
-                let tint_mul = _mm_mullo_epi16(src_simd, tint16);
+                let tint_mul = _mm_mullo_epi16(src_16, tint16);
                 let tint_rounded = _mm_add_epi16(tint_mul, e1);
                 let src_tinted16 = _mm_mulhi_epu16(tint_rounded, e2);
 
@@ -295,12 +293,12 @@ pub fn egui_blend_u8_slice_one_src_tinted_fn_sse41(
                 let tint_simd = _mm_cvtsi64_si128((tint_b << 32) | tint_a);
                 let tint16 = _mm_cvtepu8_epi16(tint_simd);
 
-                let src_simd = _mm_cvtsi64_si128(src64 as i64);
+                let src_128 = _mm_cvtsi64_si128(src64 as i64);
                 // [0,0,0,0,0,0,rgba,rgba] -> [r,g,b,a,r,g,b,a]
-                let src_simd = _mm_cvtepu8_epi16(src_simd);
+                let src_16 = _mm_cvtepu8_epi16(src_128);
 
                 // src_tinted = (src16 * vert16 + 128) * 257 >> 16  (rounded /255)
-                let tint_mul = _mm_mullo_epi16(src_simd, tint16);
+                let tint_mul = _mm_mullo_epi16(src_16, tint16);
                 let tint_rounded = _mm_add_epi16(tint_mul, e1);
                 let src_tinted16 = _mm_mulhi_epu16(tint_rounded, e2);
 
