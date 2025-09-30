@@ -612,7 +612,6 @@ impl EguiSoftwareRender {
 
                         let offset = -vec2(cropped_min.x.floor(), cropped_min.y.floor());
 
-                        // TODO perf: straightforward to multi-thread checking hash and render since the render targets are separate.
                         if render_in_low_precision {
                             // Seems to not be an issue in direct draw? Seems like a bug.
                             draw_egui_mesh::<2>(

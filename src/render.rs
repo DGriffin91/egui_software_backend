@@ -259,6 +259,7 @@ impl DrawInfo {
 }
 
 #[inline(always)]
+/// Returns twice the signed area of triangle abc
 pub fn egui_orient2df(a: &Pos2, b: &Pos2, c: &Pos2) -> f32 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }

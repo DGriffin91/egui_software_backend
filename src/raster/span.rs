@@ -11,11 +11,7 @@ pub fn calc_row_span(
 ) -> Option<(i64, i64)> {
     let mut start = 0;
     let mut end = u64::MAX;
-    let w = [
-        stepper.sp_weight[0] + stepper.bias[0] as i64,
-        stepper.sp_weight[1] + stepper.bias[1] as i64,
-        stepper.sp_weight[2] + stepper.bias[2] as i64,
-    ];
+    let w = &stepper.sp_weight;
     let sx = [
         stepper.step[0].step.x,
         stepper.step[1].step.x,

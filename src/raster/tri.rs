@@ -5,7 +5,7 @@ use crate::{
     color::{egui_blend_u8, unorm_mult4x4, vec4_to_u8x4},
     egui_texture::EguiTexture,
     raster::{
-        bary::stepper_from_ss_tri_backface_cull,
+        bary::SingleStepper,
         span::{calc_row_span, step_rcp},
     },
     render::DrawInfo,
@@ -22,7 +22,7 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
     #[constify] sse41: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
-        stepper_from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
+        SingleStepper::from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
     else {
         return;
     };
