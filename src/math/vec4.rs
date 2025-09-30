@@ -1,4 +1,5 @@
 // This exists just to avoid bringing in glam or similar since egui doesn't.
+// Might be able to use ecolor::rgba::Rgba with some additions.
 // Based on emath Vec2
 
 use core::fmt;

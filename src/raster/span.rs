@@ -12,11 +12,15 @@ pub fn calc_row_span(
     let mut start = 0;
     let mut end = u64::MAX;
     let w = [
-        stepper.w0 + stepper.bias0,
-        stepper.w1 + stepper.bias1,
-        stepper.w2 + stepper.bias2,
+        stepper.sp_weight[0] + stepper.bias[0] as i64,
+        stepper.sp_weight[1] + stepper.bias[1] as i64,
+        stepper.sp_weight[2] + stepper.bias[2] as i64,
     ];
-    let sx = [stepper.e12.step.x, stepper.e20.step.x, stepper.e01.step.x];
+    let sx = [
+        stepper.step[0].step.x,
+        stepper.step[1].step.x,
+        stepper.step[2].step.x,
+    ];
 
     for i in 0..3 {
         let w = w[i];
@@ -59,8 +63,8 @@ pub fn div_ceil_sr(lhs: u64, rhs: StrengthReducedU64) -> u64 {
 pub fn step_rcp(stepper: &SingleStepper) -> [StrengthReducedU64; 3] {
     // max(1) is fine here since the element will already be skipped if step.x == 0
     [
-        StrengthReducedU64::new(stepper.e12.step.x.abs().max(1) as u64),
-        StrengthReducedU64::new(stepper.e20.step.x.abs().max(1) as u64),
-        StrengthReducedU64::new(stepper.e01.step.x.abs().max(1) as u64),
+        StrengthReducedU64::new(stepper.step[0].step.x.abs().max(1) as u64),
+        StrengthReducedU64::new(stepper.step[1].step.x.abs().max(1) as u64),
+        StrengthReducedU64::new(stepper.step[2].step.x.abs().max(1) as u64),
     ]
 }

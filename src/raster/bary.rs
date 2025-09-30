@@ -87,15 +87,12 @@ pub fn is_top_left(a: &I64Vec2, b: &I64Vec2) -> bool {
 }
 
 pub struct SingleStepper {
-    pub e12: SingleStep,
-    pub e20: SingleStep,
-    pub e01: SingleStep,
-    pub w0: i64,
-    pub w1: i64,
-    pub w2: i64,
-    pub bias0: i64,
-    pub bias1: i64,
-    pub bias2: i64,
+    // Edge subpixel barycentric steps. (edges are: 12, 20, 01)
+    pub step: [SingleStep; 3],
+    // Edge subpixel space barycentric weights. Divide by subpixel area for barycentric factors.
+    pub sp_weight: [i64; 3],
+    // Edge subpixel bias for watertightness.
+    pub bias: [i8; 3],
 }
 
 impl SingleStepper {
@@ -107,46 +104,51 @@ impl SingleStepper {
         subpix: i64,
     ) -> Self {
         SingleStepper {
-            e12: SingleStep::new(sp1, sp2, sp_min_p, subpix),
-            e20: SingleStep::new(sp2, sp0, sp_min_p, subpix),
-            e01: SingleStep::new(sp0, sp1, sp_min_p, subpix),
-            w0: 0,
-            w1: 0,
-            w2: 0,
-            bias0: if is_top_left(sp1, sp2) { 0 } else { -1 },
-            bias1: if is_top_left(sp2, sp0) { 0 } else { -1 },
-            bias2: if is_top_left(sp0, sp1) { 0 } else { -1 },
+            step: [
+                SingleStep::new(sp1, sp2, sp_min_p, subpix),
+                SingleStep::new(sp2, sp0, sp_min_p, subpix),
+                SingleStep::new(sp0, sp1, sp_min_p, subpix),
+            ],
+            sp_weight: [0; 3],
+            bias: [
+                if is_top_left(sp1, sp2) { 0 } else { -1 },
+                if is_top_left(sp2, sp0) { 0 } else { -1 },
+                if is_top_left(sp0, sp1) { 0 } else { -1 },
+            ],
         }
     }
 
     #[inline(always)]
     pub fn inside_tri_pos_area(&self) -> bool {
         // None w are negative
-        let m = ((self.w0 + self.bias0) as u64)
-            | ((self.w1 + self.bias1) as u64)
-            | ((self.w2 + self.bias2) as u64);
+        let m = ((self.sp_weight[0] + self.bias[0] as i64) as u64)
+            | ((self.sp_weight[1] + self.bias[1] as i64) as u64)
+            | ((self.sp_weight[2] + self.bias[2] as i64) as u64);
         (m & 0x8000_0000_0000_0000) == 0
     }
 
     #[inline(always)]
+    /// Take one step along y to the next row.
     pub fn row_step(&mut self) {
-        self.e12.row += self.e12.step.y;
-        self.e20.row += self.e20.step.y;
-        self.e01.row += self.e01.step.y;
+        self.step[0].row += self.step[0].step.y;
+        self.step[1].row += self.step[1].step.y;
+        self.step[2].row += self.step[2].step.y;
     }
 
     #[inline(always)]
+    /// Take one step along x to the next column.
     pub fn col_step(&mut self) {
-        self.w0 += self.e12.step.x;
-        self.w1 += self.e20.step.x;
-        self.w2 += self.e01.step.x;
+        self.sp_weight[0] += self.step[0].step.x;
+        self.sp_weight[1] += self.step[1].step.x;
+        self.sp_weight[2] += self.step[2].step.x;
     }
 
     #[inline(always)]
+    /// Initialize weights to the start of the current row.
     pub fn row_start(&mut self) {
-        self.w0 = self.e12.row;
-        self.w1 = self.e20.row;
-        self.w2 = self.e01.row;
+        self.sp_weight[0] = self.step[0].row;
+        self.sp_weight[1] = self.step[1].row;
+        self.sp_weight[2] = self.step[2].row;
     }
 
     /// Generate stepper for float attribute (like vertex UVs or vertex colors)
@@ -157,21 +159,21 @@ impl SingleStepper {
         T: Copy + Add<Output = T> + Sub<Output = T> + AddAssign + Mul<f32, Output = T>,
     {
         // Get attribute value of top left
-        let w0 = self.e12.row;
-        let w1 = self.e20.row;
-        let (b0, b1, b2) = bary(w0, w1, sp_inv_area);
+        let w0 = self.step[0].row;
+        let w1 = self.step[1].row;
+        let (b0, b1, b2) = subpixel_bary_to_factor(w0, w1, sp_inv_area);
         let attr_tl = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
 
         // Get attribute value of one x step right from top left
-        let w0sx = w0 + self.e12.step.x;
-        let w1sx = w1 + self.e20.step.x;
-        let (b0, b1, b2) = bary(w0sx, w1sx, sp_inv_area);
+        let w0sx = w0 + self.step[0].step.x;
+        let w1sx = w1 + self.step[1].step.x;
+        let (b0, b1, b2) = subpixel_bary_to_factor(w0sx, w1sx, sp_inv_area);
         let attr_1x = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
 
         // Get attribute value of one y step down from top left
-        let w0sy = w0 + self.e12.step.y;
-        let w1sy = w1 + self.e20.step.y;
-        let (b0, b1, b2) = bary(w0sy, w1sy, sp_inv_area);
+        let w0sy = w0 + self.step[0].step.y;
+        let w1sy = w1 + self.step[1].step.y;
+        let (b0, b1, b2) = subpixel_bary_to_factor(w0sy, w1sy, sp_inv_area);
         let attr_1y = attr[0] * b0 + attr[1] * b1 + attr[2] * b2;
 
         // Compute deltas
@@ -214,9 +216,10 @@ pub fn orient2d(a: &I64Vec2, b: &I64Vec2, c: &I64Vec2) -> i64 {
 }
 
 #[inline(always)]
-pub fn bary(w0: i64, w1: i64, inv_area: f32) -> (f32, f32, f32) {
-    let b0 = (w0 as f32) * inv_area;
-    let b1 = (w1 as f32) * inv_area;
+/// Convert subpixel space barycentric weights to barycentric factors (0..1)
+pub fn subpixel_bary_to_factor(sp_w0: i64, sp_w1: i64, inv_area: f32) -> (f32, f32, f32) {
+    let b0 = (sp_w0 as f32) * inv_area;
+    let b1 = (sp_w1 as f32) * inv_area;
     let b2 = 1.0 - b0 - b1;
     (b0, b1, b2)
 }
