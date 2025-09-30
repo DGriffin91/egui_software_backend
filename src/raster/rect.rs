@@ -43,11 +43,21 @@ pub fn draw_rect(
         for y in min_y..max_y {
             if alpha_blend {
                 if simd {
-                    #[cfg(target_arch = "x86_64")]
-                    crate::color_sse41::egui_blend_u8_slice_one_src_sse41(
-                        const_tri_color_u8x4,
-                        buffer.get_mut_span(min_x, max_x, y),
-                    )
+                    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+                    {
+                        #[cfg(target_arch = "x86_64")]
+                        unsafe {
+                            crate::color_sse41::egui_blend_u8_slice_one_src(
+                                const_tri_color_u8x4,
+                                buffer.get_mut_span(min_x, max_x, y),
+                            )
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        crate::color_neon::egui_blend_u8_slice_one_src(
+                            const_tri_color_u8x4,
+                            buffer.get_mut_span(min_x, max_x, y),
+                        )
+                    }
                 } else {
                     for pixel in buffer.get_mut_span(min_x, max_x, y) {
                         *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
@@ -105,13 +115,22 @@ pub fn draw_rect(
                 let src = &texture.data[tex_start..tex_end];
 
                 if simd {
-                    #[cfg(target_arch = "x86_64")]
+                    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
                     {
-                        crate::color_sse41::egui_blend_u8_slice_tinted_sse41(
+                        #[cfg(target_arch = "x86_64")]
+                        unsafe {
+                            crate::color_sse41::egui_blend_u8_slice_tinted(
+                                src,
+                                draw.const_vert_color_u8x4,
+                                dst,
+                            )
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        crate::color_neon::egui_blend_u8_slice_tinted(
                             src,
                             draw.const_vert_color_u8x4,
                             dst,
-                        )
+                        );
                     }
                 } else {
                     for (pixel, tex_color) in dst.iter_mut().zip(src) {

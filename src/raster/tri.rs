@@ -63,15 +63,29 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
             let ss_end = (ss_min.x + end) as usize;
 
             if simd && alpha_blend && !vert_uvs_vary {
-                #[cfg(target_arch = "x86_64")]
+                #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
                 {
+                    #[cfg(target_arch = "aarch64")]
+                    use crate::color_neon::*;
+                    #[cfg(target_arch = "x86_64")]
+                    use crate::color_sse41::*;
+
                     let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
-                    use crate::color_sse41::{
-                        egui_blend_u8_slice_one_src_sse41,
-                        egui_blend_u8_slice_one_src_tinted_fn_sse41,
-                    };
                     if vert_col_vary {
-                        egui_blend_u8_slice_one_src_tinted_fn_sse41(
+                        #[cfg(target_arch = "x86_64")]
+                        unsafe {
+                            crate::color_sse41::egui_blend_u8_slice_one_src_tinted_fn(
+                                draw.const_tex_color_u8x4,
+                                || {
+                                    let v = vec4_to_u8x4(&vert_col_stepper.attr);
+                                    vert_col_stepper.col_step();
+                                    v
+                                },
+                                dst,
+                            )
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        crate::color_neon::egui_blend_u8_slice_one_src_tinted_fn(
                             draw.const_tex_color_u8x4,
                             || {
                                 let v = vec4_to_u8x4(&vert_col_stepper.attr);
@@ -79,9 +93,20 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
                                 v
                             },
                             dst,
-                        );
+                        )
                     } else {
-                        egui_blend_u8_slice_one_src_sse41(draw.const_tri_color_u8x4, dst)
+                        #[cfg(target_arch = "x86_64")]
+                        unsafe {
+                            crate::color_sse41::egui_blend_u8_slice_one_src(
+                                draw.const_tri_color_u8x4,
+                                dst,
+                            )
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        crate::color_neon::egui_blend_u8_slice_one_src(
+                            draw.const_tri_color_u8x4,
+                            dst,
+                        )
                     }
                 }
             } else {
