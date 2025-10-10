@@ -4,7 +4,7 @@ use bevy::{
     ecs::system::SystemState,
     prelude::*,
     window::{PrimaryWindow, RawHandleWrapper, ThreadLockedRawWindowHandleWrapper, WindowResized},
-    winit::WinitWindows,
+    winit::WINIT_WINDOWS,
 };
 
 use egui_software_backend::{BufferMutRef, BufferRef};
@@ -22,7 +22,7 @@ impl Plugin for SoftBufferPlugin {
 }
 
 pub fn resize(
-    mut events: EventReader<WindowResized>,
+    mut events: MessageReader<WindowResized>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     mut buffer: NonSendMut<FrameSurface>,
 ) {
@@ -113,47 +113,44 @@ impl<'a> FrameBuffer<'a> {
 }
 
 #[allow(clippy::type_complexity)]
-pub fn startup(
-    world: &mut World,
-    // in 0.17 `NonSendMut<WinitWindows>` will be bevy::winit::WINIT_WINDOWS
-    // used with `WINIT_WINDOWS.with_borrow(|winit_windows| {`
-    params: &mut SystemState<(Query<Entity, With<PrimaryWindow>>, NonSendMut<WinitWindows>)>,
-) {
-    let (primary_window, winit_windows) = params.get_mut(world);
+pub fn startup(world: &mut World, params: &mut SystemState<Query<Entity, With<PrimaryWindow>>>) {
+    WINIT_WINDOWS.with_borrow(|winit_windows| {
+        let primary_window = params.get_mut(world);
 
-    let primary_window = primary_window
-        .single()
-        .expect("Expected PrimaryWindow entity");
+        let primary_window = primary_window
+            .single()
+            .expect("Expected PrimaryWindow entity");
 
-    let window = winit_windows
-        .get_window(primary_window)
-        .expect("Expected winit window matching PrimaryWindow entity");
-    let handle = RawHandleWrapper::new(window).unwrap();
+        let window = winit_windows
+            .get_window(primary_window)
+            .expect("Expected winit window matching PrimaryWindow entity");
+        let handle = RawHandleWrapper::new(window).unwrap();
 
-    // SAFETY: `Framebuffer` is `!Send`, `!Sync` and threrefore only accessed on the main thread.
-    let (raw_display, raw_window) = unsafe { (handle.get_handle(), handle.get_handle()) };
+        // SAFETY: `Framebuffer` is `!Send`, `!Sync` and threrefore only accessed on the main thread.
+        let (raw_display, raw_window) = unsafe { (handle.get_handle(), handle.get_handle()) };
 
-    let mut surface = {
-        let context = Context::new(raw_display).unwrap();
-        Surface::new(&context, raw_window).unwrap()
-    };
+        let mut surface = {
+            let context = Context::new(raw_display).unwrap();
+            Surface::new(&context, raw_window).unwrap()
+        };
 
-    let size = window.inner_size();
+        let size = window.inner_size();
 
-    let width = size.width.max(1);
-    let height = size.height.max(1);
+        let width = size.width.max(1);
+        let height = size.height.max(1);
 
-    surface
-        .resize(
-            NonZeroU32::new(width).unwrap(),
-            NonZeroU32::new(height).unwrap(),
-        )
-        .unwrap();
+        surface
+            .resize(
+                NonZeroU32::new(width).unwrap(),
+                NonZeroU32::new(height).unwrap(),
+            )
+            .unwrap();
 
-    world.insert_non_send_resource(FrameSurface {
-        surface,
-        width,
-        height,
+        world.insert_non_send_resource(FrameSurface {
+            surface,
+            width,
+            height,
+        });
     });
 }
 

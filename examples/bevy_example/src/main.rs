@@ -43,7 +43,7 @@ fn main() {
 
     let mut default_plugins = DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            resolution: WindowResolution::new(1920.0, 1080.0).with_scale_factor_override(1.0),
+            resolution: WindowResolution::new(1920, 1080).with_scale_factor_override(1.0),
             present_mode: PresentMode::AutoNoVsync,
             ..default()
         }),

@@ -11,8 +11,8 @@ egui_demo_lib = { version = "0.32" }
 egui_extras = { version = "0.32", features = ["all_loaders"] }
 epaint_default_fonts = "0.32"
 
-bevy = { version = "0.16" }
-bevy_egui = { version = "0.36" }
+bevy = { version = "0.17" }
+bevy_egui = { version = "0.37" }
 
 softbuffer = { version = "0.4" }
 image = { version = "0.25", features = ["jpeg", "png"] }
