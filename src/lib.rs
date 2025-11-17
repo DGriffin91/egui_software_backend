@@ -127,7 +127,7 @@ impl EguiSoftwareRender {
     /// Renders the given paint jobs to buffer_ref. Alternatively, when using caching
     /// EguiSoftwareRender::render_to_canvas() and subsequently EguiSoftwareRender::blit_canvas_to_buffer() can be run
     /// separately so that the primary rendering in render_to_canvas() can happen without a lock on the frame buffer.
-    ///  
+    ///
     ///
     /// # Arguments
     /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.
@@ -451,7 +451,7 @@ impl EguiSoftwareRender {
         let mut px_mesh = mesh.clone();
 
         for v in px_mesh.vertices.iter_mut() {
-            v.pos *= pixels_per_point;
+            v.pos = v.pos * pixels_per_point;
 
             match self.output_field_order {
                 ColorFieldOrder::Rgba => (), // egui uses rgba
@@ -823,6 +823,18 @@ impl EguiSoftwareRender {
                 egui::ImageData::Color(image) => {
                     assert_eq!(image.width() * image.height(), image.pixels.len());
                     Cow::Borrowed(&image.pixels)
+                }
+                egui::ImageData::Font(font_image) => {
+                    assert_eq!(
+                        font_image.width() * font_image.height(),
+                        font_image.pixels.len()
+                    );
+                    let buf: Vec<Color32> = font_image
+                        .pixels
+                        .iter()
+                        .map(|&a| Color32::from_white_alpha((a * 255.0) as u8))
+                        .collect();
+                    Cow::Owned(buf)
                 }
             };
             let size = delta.image.size();

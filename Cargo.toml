@@ -5,27 +5,27 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-egui = { version = "0.33", default-features = false }
+egui = { version = "0.31", default-features = false }
 strength_reduce = "0.2.4"
 constify = { path = "constify", version = "0.0.1"}
 
 rayon = { version = "1.11.0", optional = true }
 log = { version = "0.4.28", optional = true }
 
-# Optional dependencies for automated testing: 
-egui_kittest = { version = "0.33", optional = true }
+# Optional dependencies for automated testing:
+egui_kittest = { version = "0.31", optional = true }
 image = { version = "0.25", optional = true }
 
 [dev-dependencies]
 egui_software_backend = { path = ".", version = "0.0.1", features = ["test_render"] }
 
-egui = { version = "0.33", features = ["default_fonts"] }
-eframe = "0.33"
-egui_kittest = { version = "0.33", features = ["snapshot", "wgpu"] }
-egui_demo_lib = { version = "0.33" }
-egui_extras = { version = "0.33", features = ["all_loaders"] }
-egui-winit = { version = "0.33", default-features = false }
-epaint_default_fonts = "0.33"
+egui = { version = "0.31", features = ["default_fonts"] }
+eframe = "0.31"
+egui_kittest = { version = "0.31", features = ["snapshot", "wgpu"] }
+egui_demo_lib = { version = "0.31" }
+egui_extras = { version = "0.31", features = ["all_loaders"] }
+egui-winit = { version = "0.31", default-features = false }
+epaint_default_fonts = "0.31"
 
 softbuffer = { version = "0.4" }
 image = { version = "0.25", features = ["jpeg", "png"] }

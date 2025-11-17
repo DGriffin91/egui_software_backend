@@ -90,7 +90,7 @@ pub fn draw_rect(
         let use_nearest_sampling = {
             let ss_step = uv_step * texture.fsize;
             let dist_from_px_center = (ts_min - ts_min.floor() - vec2(0.5, 0.5)).abs();
-            let steps_off_from_1px = (ss_step - Vec2::ONE).abs();
+            let steps_off_from_1px = (ss_step - Vec2::splat(1.0)).abs();
             let eps = 0.01;
             let steps_are_1px = steps_off_from_1px.x < eps && steps_off_from_1px.y < eps;
             let start_on_texture_px_center =
