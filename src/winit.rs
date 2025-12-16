@@ -395,7 +395,7 @@ pub fn run_app_with_software_backend<T: App>(
                     .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
                     .map(Rc::new)
             },
-            move |_elwt, window: &mut Rc<Window>| {
+            |_elwt, window: &mut Rc<Window>| {
                 let surface = softbuffer::Surface::new(&softbuffer_context, window.clone())
                     .map_err(SoftwareBackendAppError::soft_buffer(
                         "softbuffer::Surface::new",
