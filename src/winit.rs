@@ -242,11 +242,14 @@ pub struct SoftwareBackendAppConfiguration {
     height: f64,
     title: Option<String>,
     icon: Option<Icon>,
+
     show_render_time_in_title: bool,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
     caching: bool,
     resizeable: bool,
+    position: Option<(f64, f64)>,
+    decorations: bool,
 }
 
 impl SoftwareBackendAppConfiguration {
@@ -256,7 +259,7 @@ impl SoftwareBackendAppConfiguration {
             width: 320.0,
             height: 200.0,
 
-            //Recommended defaults
+            //Reasonable defaults
             title: None,
             icon: None,
             show_render_time_in_title: false,
@@ -264,6 +267,8 @@ impl SoftwareBackendAppConfiguration {
             convert_tris_to_rects: true,
             caching: true,
             resizeable: true,
+            position: None,
+            decorations: false,
         }
     }
 
@@ -317,6 +322,20 @@ impl SoftwareBackendAppConfiguration {
         self.resizeable = resizeable;
         self
     }
+
+    pub const fn with_position(mut self, x: f64, y: f64) -> Self {
+        self.position = Some((x, y));
+        self
+    }
+
+    pub const fn no_position(mut self) -> Self {
+        self.position = None;
+        self
+    }
+    pub const fn decorations(mut self, decorations: bool) -> Self {
+        self.decorations = decorations;
+        self
+    }
 }
 
 impl Default for SoftwareBackendAppConfiguration {
@@ -351,21 +370,26 @@ pub fn run_app_with_software_backend<T: App>(
     let mut app =
         WinitApp::new(
             |elwt: &ActiveEventLoop| {
-                let window = elwt.create_window(
-                    Window::default_attributes()
-                        .with_inner_size(winit::dpi::LogicalSize::new(
-                            settings.width,
-                            settings.height,
-                        ))
-                        .with_title(
-                            settings
-                                .title
-                                .clone()
-                                .unwrap_or_else(|| "egui software backend".to_string()),
-                        )
-                        .with_window_icon(settings.icon.clone())
-                        .with_resizable(settings.resizeable),
-                );
+                let mut attributes = Window::default_attributes()
+                    .with_inner_size(winit::dpi::LogicalSize::new(
+                        settings.width,
+                        settings.height,
+                    ))
+                    .with_title(
+                        settings
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| "egui software backend".to_string()),
+                    )
+                    .with_window_icon(settings.icon.clone())
+                    .with_resizable(settings.resizeable)
+                    .with_decorations(settings.decorations);
+
+                if let Some((x, y)) = settings.position.as_ref().copied() {
+                    attributes = attributes.with_position(winit::dpi::LogicalPosition::new(x, y));
+                }
+
+                let window = elwt.create_window(attributes);
 
                 window
                     .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
