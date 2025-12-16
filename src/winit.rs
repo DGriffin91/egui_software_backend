@@ -323,7 +323,7 @@ impl SoftwareBackendAppConfiguration {
         self
     }
 
-    pub const fn with_position(mut self, x: f64, y: f64) -> Self {
+    pub const fn position(mut self, x: f64, y: f64) -> Self {
         self.position = Some((x, y));
         self
     }
