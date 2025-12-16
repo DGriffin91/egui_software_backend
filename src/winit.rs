@@ -268,7 +268,7 @@ impl SoftwareBackendAppConfiguration {
             caching: true,
             resizeable: true,
             position: None,
-            decorations: false,
+            decorations: true,
         }
     }
 
