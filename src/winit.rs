@@ -1,33 +1,33 @@
-use core::fmt::{Display, Formatter};
 use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
+use core::fmt::{Display, Formatter};
 use core::num::NonZeroU32;
 use core::time::Duration;
-use std::format;
 use egui::Context;
+use softbuffer::SoftBufferError;
+use std::boxed::Box;
+use std::error::Error;
+use std::format;
 use std::rc::Rc;
 use std::string::String;
 use std::string::ToString;
 use std::time::Instant;
-use softbuffer::SoftBufferError;
+use std::vec::Vec;
 use winit::application::ApplicationHandler;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
 use winit::window::{Icon, Window, WindowId};
-use std::boxed::Box;
-use std::error::Error;
-use std::vec::Vec;
 
 #[derive(Debug)]
 pub enum SoftwareBackendAppError {
-   SoftBufferError {
-       soft_buffer_error: Box<dyn Error>,
-       function: &'static str,
-   },
+    SoftBufferError {
+        soft_buffer_error: Box<dyn Error>,
+        function: &'static str,
+    },
     EventLoopError(Box<dyn Error>),
     /// The event loop has errored in addition to an error from the software renderer
     SuppressedEventLoopError {
         event_loop_error: Box<dyn Error>,
-        suppressed: Box<SoftwareBackendAppError>
+        suppressed: Box<SoftwareBackendAppError>,
     },
 
     /// Error when calling winit create_window
@@ -40,10 +40,16 @@ impl Display for SoftwareBackendAppError {
             SoftwareBackendAppError::SoftBufferError { function, .. } => {
                 f.write_str("error calling ")?;
                 f.write_str(function)
-            },
-            SoftwareBackendAppError::EventLoopError(_) => f.write_str("winit event loop has errored"),
-            SoftwareBackendAppError::SuppressedEventLoopError { .. } => f.write_str("software renderer and winit event loop have both errored"),
-            SoftwareBackendAppError::CreateWindowOsError(_) => f.write_str("os error calling winit::create_window"),
+            }
+            SoftwareBackendAppError::EventLoopError(_) => {
+                f.write_str("winit event loop has errored")
+            }
+            SoftwareBackendAppError::SuppressedEventLoopError { .. } => {
+                f.write_str("software renderer and winit event loop have both errored")
+            }
+            SoftwareBackendAppError::CreateWindowOsError(_) => {
+                f.write_str("os error calling winit::create_window")
+            }
         }
     }
 }
@@ -51,25 +57,24 @@ impl Display for SoftwareBackendAppError {
 impl Error for SoftwareBackendAppError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            SoftwareBackendAppError::SuppressedEventLoopError { suppressed, .. } => Some(suppressed as &dyn Error),
+            SoftwareBackendAppError::SuppressedEventLoopError { suppressed, .. } => {
+                Some(suppressed as &dyn Error)
+            }
             _ => None,
         }
     }
 }
 
 impl SoftwareBackendAppError {
-    fn soft_buffer(function: &'static str) -> impl FnOnce(SoftBufferError) -> SoftwareBackendAppError {
-        move |error| {
-            Self::SoftBufferError {
-                soft_buffer_error: Box::new(error),
-                function,
-            }
+    fn soft_buffer(
+        function: &'static str,
+    ) -> impl FnOnce(SoftBufferError) -> SoftwareBackendAppError {
+        move |error| Self::SoftBufferError {
+            soft_buffer_error: Box::new(error),
+            function,
         }
     }
 }
-
-
-
 
 /// Easily constructable winit application.
 struct WinitApp<EguiApp: App, Init, InitSurface, Handler> {
@@ -93,8 +98,16 @@ struct WinitApp<EguiApp: App, Init, InitSurface, Handler> {
 impl<EguiApp: App, Init, InitSurface, Handler> WinitApp<EguiApp, Init, InitSurface, Handler>
 where
     Init: FnMut(&ActiveEventLoop) -> Result<Rc<Window>, SoftwareBackendAppError>,
-    InitSurface: FnMut(&ActiveEventLoop, &mut Rc<Window>) -> Result<WinitSurfaceState<EguiApp>, SoftwareBackendAppError>,
-    Handler: FnMut(&mut Rc<Window>, Option<&mut WinitSurfaceState<EguiApp>>, Event<()>, &ActiveEventLoop) -> Result<(), SoftwareBackendAppError>,
+    InitSurface: FnMut(
+        &ActiveEventLoop,
+        &mut Rc<Window>,
+    ) -> Result<WinitSurfaceState<EguiApp>, SoftwareBackendAppError>,
+    Handler: FnMut(
+        &mut Rc<Window>,
+        Option<&mut WinitSurfaceState<EguiApp>>,
+        Event<()>,
+        &ActiveEventLoop,
+    ) -> Result<(), SoftwareBackendAppError>,
 {
     /// Create a new application.
     pub(crate) fn new(init: Init, init_surface: InitSurface, event: Handler) -> Self {
@@ -110,11 +123,19 @@ where
 }
 
 impl<EguiApp: App, Init, InitSurface, Handler> ApplicationHandler
-for WinitApp<EguiApp, Init, InitSurface, Handler>
+    for WinitApp<EguiApp, Init, InitSurface, Handler>
 where
     Init: FnMut(&ActiveEventLoop) -> Result<Rc<Window>, SoftwareBackendAppError>,
-    InitSurface: FnMut(&ActiveEventLoop, &mut Rc<Window>) -> Result<WinitSurfaceState<EguiApp>, SoftwareBackendAppError>,
-    Handler: FnMut(&mut Rc<Window>, Option<&mut WinitSurfaceState<EguiApp>>, Event<()>, &ActiveEventLoop) -> Result<(), SoftwareBackendAppError>,
+    InitSurface: FnMut(
+        &ActiveEventLoop,
+        &mut Rc<Window>,
+    ) -> Result<WinitSurfaceState<EguiApp>, SoftwareBackendAppError>,
+    Handler: FnMut(
+        &mut Rc<Window>,
+        Option<&mut WinitSurfaceState<EguiApp>>,
+        Event<()>,
+        &ActiveEventLoop,
+    ) -> Result<(), SoftwareBackendAppError>,
 {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if el.exiting() {
@@ -125,7 +146,7 @@ where
                 return;
             }
 
-             match (self.init_surface)(el, state) {
+            match (self.init_surface)(el, state) {
                 Ok(ss) => self.surface_state = Some(ss),
                 Err(e) => {
                     self.error = Some(e);
@@ -308,9 +329,12 @@ impl Default for SoftwareBackendAppConfiguration {
     }
 }
 
-const ONE_PIXEL : NonZeroU32 = NonZeroU32::new(1).unwrap();
+const ONE_PIXEL: NonZeroU32 = NonZeroU32::new(1).unwrap();
 
-pub fn run_app_with_software_backend<T: App>(settings: SoftwareBackendAppConfiguration, mut egui_app_factory: impl FnMut(Context) -> T) -> Result<(), SoftwareBackendAppError> {
+pub fn run_app_with_software_backend<T: App>(
+    settings: SoftwareBackendAppConfiguration,
+    mut egui_app_factory: impl FnMut(Context) -> T,
+) -> Result<(), SoftwareBackendAppError> {
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(settings.allow_raster_opt)
         .with_convert_tris_to_rects(settings.convert_tris_to_rects)
@@ -318,151 +342,174 @@ pub fn run_app_with_software_backend<T: App>(settings: SoftwareBackendAppConfigu
 
     let show_fps = settings.show_render_time_in_title;
 
-    let event_loop: EventLoop<()> = EventLoop::new()
-        .map_err(|e| SoftwareBackendAppError::EventLoopError(Box::new(e)))?;
+    let event_loop: EventLoop<()> =
+        EventLoop::new().map_err(|e| SoftwareBackendAppError::EventLoopError(Box::new(e)))?;
 
-    let softbuffer_context = softbuffer::Context::new(event_loop.owned_display_handle())
-        .map_err(SoftwareBackendAppError::soft_buffer("softbuffer::Context::new"))?;
+    let softbuffer_context = softbuffer::Context::new(event_loop.owned_display_handle()).map_err(
+        SoftwareBackendAppError::soft_buffer("softbuffer::Context::new"),
+    )?;
 
     let mut last_update = Instant::now();
     let mut frame_count: u32 = 0;
 
-    let mut app = WinitApp::new(
-        |elwt: &ActiveEventLoop| {
-            let window = elwt.create_window(
-                Window::default_attributes()
-                    .with_inner_size(winit::dpi::LogicalSize::new(settings.width, settings.height))
-                    .with_title(settings.title.clone().unwrap_or_else(|| "egui software backend".to_string()))
-                    .with_window_icon(settings.icon.clone())
-                    .with_resizable(settings.resizeable)
-                ,
-            );
+    let mut app =
+        WinitApp::new(
+            |elwt: &ActiveEventLoop| {
+                let window = elwt.create_window(
+                    Window::default_attributes()
+                        .with_inner_size(winit::dpi::LogicalSize::new(
+                            settings.width,
+                            settings.height,
+                        ))
+                        .with_title(
+                            settings
+                                .title
+                                .clone()
+                                .unwrap_or_else(|| "egui software backend".to_string()),
+                        )
+                        .with_window_icon(settings.icon.clone())
+                        .with_resizable(settings.resizeable),
+                );
 
-            window.map_err(|ose| SoftwareBackendAppError::CreateWindowOsError(Box::new(ose))).map(Rc::new)
-        },
-        move |_elwt, window: &mut Rc<Window>| {
-            let surface = softbuffer::Surface::new(&softbuffer_context, window.clone())
-                .map_err(SoftwareBackendAppError::soft_buffer("softbuffer::Surface::new"))?;
-            let egui_ctx = Context::default();
-            let egui_winit = egui_winit::State::new(
-                egui_ctx.clone(),
-                egui::ViewportId::ROOT,
-                &window,
-                Some(window.scale_factor() as f32),
-                None,
-                None,
-            );
+                window
+                    .map_err(|ose| SoftwareBackendAppError::CreateWindowOsError(Box::new(ose)))
+                    .map(Rc::new)
+            },
+            move |_elwt, window: &mut Rc<Window>| {
+                let surface = softbuffer::Surface::new(&softbuffer_context, window.clone())
+                    .map_err(SoftwareBackendAppError::soft_buffer(
+                        "softbuffer::Surface::new",
+                    ))?;
+                let egui_ctx = Context::default();
+                let egui_winit = egui_winit::State::new(
+                    egui_ctx.clone(),
+                    egui::ViewportId::ROOT,
+                    &window,
+                    Some(window.scale_factor() as f32),
+                    None,
+                    None,
+                );
 
-            let egui_app = egui_app_factory(egui_ctx.clone());
+                let egui_app = egui_app_factory(egui_ctx.clone());
 
-            Ok(WinitSurfaceState {
-                surface,
-                egui_app,
-                egui_ctx,
-                egui_winit,
-            })
-        },
-        |window: &mut Rc<Window>,
-         app: Option<&mut WinitSurfaceState<T>>,
-         event: Event<()>,
-         elwt: &ActiveEventLoop| {
-            elwt.set_control_flow(ControlFlow::Wait);
-            let Some(app) = app else {
-                return Ok(());
-            };
+                Ok(WinitSurfaceState {
+                    surface,
+                    egui_app,
+                    egui_ctx,
+                    egui_winit,
+                })
+            },
+            |window: &mut Rc<Window>,
+             app: Option<&mut WinitSurfaceState<T>>,
+             event: Event<()>,
+             elwt: &ActiveEventLoop| {
+                elwt.set_control_flow(ControlFlow::Wait);
+                let Some(app) = app else {
+                    return Ok(());
+                };
 
-            let Event::WindowEvent {
-                window_id,
-                event: window_event,
-            } = event
-            else {
-                return Ok(());
-            };
+                let Event::WindowEvent {
+                    window_id,
+                    event: window_event,
+                } = event
+                else {
+                    return Ok(());
+                };
 
-            if window_id != window.id() {
-                return Ok(());
-            }
+                if window_id != window.id() {
+                    return Ok(());
+                }
 
-            let response = app.egui_winit.on_window_event(window, &window_event);
+                let response = app.egui_winit.on_window_event(window, &window_event);
 
-            if response.repaint {
-                // Redraw when egui says it's necessary (e.g., mouse move, key press):
-                window.request_redraw();
-            }
+                if response.repaint {
+                    // Redraw when egui says it's necessary (e.g., mouse move, key press):
+                    window.request_redraw();
+                }
 
-            match window_event {
-                WindowEvent::RedrawRequested => {
-                    let size = window.inner_size();
-                    let width = NonZeroU32::new(size.width).unwrap_or(ONE_PIXEL);
-                    let height = NonZeroU32::new(size.height).unwrap_or(ONE_PIXEL);
+                match window_event {
+                    WindowEvent::RedrawRequested => {
+                        let size = window.inner_size();
+                        let width = NonZeroU32::new(size.width).unwrap_or(ONE_PIXEL);
+                        let height = NonZeroU32::new(size.height).unwrap_or(ONE_PIXEL);
 
-                    app.surface
-                        .resize(width, height)
-                        .map_err(SoftwareBackendAppError::soft_buffer("softbuffer::Surface::resize"))?;
+                        app.surface.resize(width, height).map_err(
+                            SoftwareBackendAppError::soft_buffer("softbuffer::Surface::resize"),
+                        )?;
 
-                    let raw_input = app.egui_winit.take_egui_input(window);
+                        let raw_input = app.egui_winit.take_egui_input(window);
 
-                    let full_output = app.egui_ctx.run(raw_input, |ctx| {
-                        app.egui_app.update(ctx);
-                    });
+                        let full_output = app.egui_ctx.run(raw_input, |ctx| {
+                            app.egui_app.update(ctx);
+                        });
 
-                    let clipped_primitives = app
-                        .egui_ctx
-                        .tessellate(full_output.shapes, full_output.pixels_per_point);
+                        let clipped_primitives = app
+                            .egui_ctx
+                            .tessellate(full_output.shapes, full_output.pixels_per_point);
 
-                    let mut buffer = app.surface.buffer_mut()
-                        .map_err(SoftwareBackendAppError::soft_buffer("softbuffer::Surface::buffer_mut"))?;
-                    buffer.fill(0); // CLEAR
+                        let mut buffer = app.surface.buffer_mut().map_err(
+                            SoftwareBackendAppError::soft_buffer("softbuffer::Surface::buffer_mut"),
+                        )?;
+                        buffer.fill(0); // CLEAR
 
-                    let buffer_ref = &mut BufferMutRef::new(
-                        bytemuck::cast_slice_mut(&mut buffer),
-                        width.get() as usize,
-                        height.get() as usize,
-                    );
+                        let buffer_ref = &mut BufferMutRef::new(
+                            bytemuck::cast_slice_mut(&mut buffer),
+                            width.get() as usize,
+                            height.get() as usize,
+                        );
 
-                    egui_software_render.render(
-                        buffer_ref,
-                        &clipped_primitives,
-                        &full_output.textures_delta,
-                        full_output.pixels_per_point,
-                    );
+                        egui_software_render.render(
+                            buffer_ref,
+                            &clipped_primitives,
+                            &full_output.textures_delta,
+                            full_output.pixels_per_point,
+                        );
 
-                    buffer.present()
-                        .map_err(SoftwareBackendAppError::soft_buffer("softbuffer::Buffer::present"))?;
+                        buffer
+                            .present()
+                            .map_err(SoftwareBackendAppError::soft_buffer(
+                                "softbuffer::Buffer::present",
+                            ))?;
 
-                    if show_fps {
-                        frame_count += 1;
+                        if show_fps {
+                            frame_count += 1;
 
-                        let now = Instant::now();
-                        if now.duration_since(last_update) >= Duration::from_secs(1) {
-                            let fps =
-                                frame_count as f64 / now.duration_since(last_update).as_secs_f64();
-                            window.set_title(&format!("egui software backend - {:.2}ms", 1000.0 / fps));
-                            frame_count = 0;
-                            last_update = now;
+                            let now = Instant::now();
+                            if now.duration_since(last_update) >= Duration::from_secs(1) {
+                                let fps = frame_count as f64
+                                    / now.duration_since(last_update).as_secs_f64();
+                                window.set_title(&format!(
+                                    "egui software backend - {:.2}ms",
+                                    1000.0 / fps
+                                ));
+                                frame_count = 0;
+                                last_update = now;
+                            }
                         }
                     }
+
+                    WindowEvent::CloseRequested => {
+                        app.egui_app.on_exit(&app.egui_ctx);
+                        elwt.exit();
+                    }
+                    _ => {}
                 }
 
-                WindowEvent::CloseRequested => {
-                    app.egui_app.on_exit(&app.egui_ctx);
-                    elwt.exit();
-                }
-                _ => {}
-            }
-
-            return Ok(())
-        });
+                return Ok(());
+            },
+        );
 
     if let Err(event_loop_error) = event_loop.run_app(&mut app) {
         if let Some(app_err) = app.error.take() {
             return Err(SoftwareBackendAppError::SuppressedEventLoopError {
                 event_loop_error: Box::new(event_loop_error),
                 suppressed: Box::new(app_err),
-            })
+            });
         }
 
-        return Err(SoftwareBackendAppError::EventLoopError(Box::new(event_loop_error)));
+        return Err(SoftwareBackendAppError::EventLoopError(Box::new(
+            event_loop_error,
+        )));
     }
 
     app.error.take().map(Err).unwrap_or(Ok(()))

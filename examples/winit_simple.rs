@@ -1,8 +1,6 @@
 use egui_software_backend::SoftwareBackendAppConfiguration;
 
-struct EguiApp {
-
-}
+struct EguiApp {}
 
 impl EguiApp {
     fn new(context: egui::Context) -> Self {
@@ -18,7 +16,6 @@ impl egui_software_backend::App for EguiApp {
         });
     }
 }
-
 
 fn main() {
     let settings = SoftwareBackendAppConfiguration::new()
