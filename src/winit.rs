@@ -19,35 +19,33 @@ use winit::window::{Icon, Window, WindowId};
 
 #[derive(Debug)]
 pub enum SoftwareBackendAppError {
-    SoftBufferError {
+    SoftBuffer {
         soft_buffer_error: Box<dyn Error>,
         function: &'static str,
     },
-    EventLoopError(Box<dyn Error>),
+    EventLoop(Box<dyn Error>),
     /// The event loop has errored in addition to an error from the software renderer
-    SuppressedEventLoopError {
+    SuppressedEventLoop {
         event_loop_error: Box<dyn Error>,
         suppressed: Box<SoftwareBackendAppError>,
     },
 
     /// Error when calling winit create_window
-    CreateWindowOsError(Box<dyn Error>),
+    CreateWindowOs(Box<dyn Error>),
 }
 
 impl Display for SoftwareBackendAppError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            SoftwareBackendAppError::SoftBufferError { function, .. } => {
+            SoftwareBackendAppError::SoftBuffer { function, .. } => {
                 f.write_str("error calling ")?;
                 f.write_str(function)
             }
-            SoftwareBackendAppError::EventLoopError(_) => {
-                f.write_str("winit event loop has errored")
-            }
-            SoftwareBackendAppError::SuppressedEventLoopError { .. } => {
+            SoftwareBackendAppError::EventLoop(_) => f.write_str("winit event loop has errored"),
+            SoftwareBackendAppError::SuppressedEventLoop { .. } => {
                 f.write_str("software renderer and winit event loop have both errored")
             }
-            SoftwareBackendAppError::CreateWindowOsError(_) => {
+            SoftwareBackendAppError::CreateWindowOs(_) => {
                 f.write_str("os error calling winit::create_window")
             }
         }
@@ -57,7 +55,7 @@ impl Display for SoftwareBackendAppError {
 impl Error for SoftwareBackendAppError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            SoftwareBackendAppError::SuppressedEventLoopError { suppressed, .. } => {
+            SoftwareBackendAppError::SuppressedEventLoop { suppressed, .. } => {
                 Some(suppressed as &dyn Error)
             }
             _ => None,
@@ -69,7 +67,7 @@ impl SoftwareBackendAppError {
     fn soft_buffer(
         function: &'static str,
     ) -> impl FnOnce(SoftBufferError) -> SoftwareBackendAppError {
-        move |error| Self::SoftBufferError {
+        move |error| Self::SoftBuffer {
             soft_buffer_error: Box::new(error),
             function,
         }
@@ -151,7 +149,6 @@ where
                 Err(e) => {
                     self.error = Some(e);
                     el.exit();
-                    return;
                 }
             }
         } else {
@@ -171,7 +168,6 @@ where
                 Err(e) => {
                     self.error = Some(e);
                     el.exit();
-                    return;
                 }
             };
         }
@@ -343,7 +339,7 @@ pub fn run_app_with_software_backend<T: App>(
     let show_fps = settings.show_render_time_in_title;
 
     let event_loop: EventLoop<()> =
-        EventLoop::new().map_err(|e| SoftwareBackendAppError::EventLoopError(Box::new(e)))?;
+        EventLoop::new().map_err(|e| SoftwareBackendAppError::EventLoop(Box::new(e)))?;
 
     let softbuffer_context = softbuffer::Context::new(event_loop.owned_display_handle()).map_err(
         SoftwareBackendAppError::soft_buffer("softbuffer::Context::new"),
@@ -372,7 +368,7 @@ pub fn run_app_with_software_backend<T: App>(
                 );
 
                 window
-                    .map_err(|ose| SoftwareBackendAppError::CreateWindowOsError(Box::new(ose)))
+                    .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
                     .map(Rc::new)
             },
             move |_elwt, window: &mut Rc<Window>| {
@@ -495,19 +491,19 @@ pub fn run_app_with_software_backend<T: App>(
                     _ => {}
                 }
 
-                return Ok(());
+                Ok(())
             },
         );
 
     if let Err(event_loop_error) = event_loop.run_app(&mut app) {
         if let Some(app_err) = app.error.take() {
-            return Err(SoftwareBackendAppError::SuppressedEventLoopError {
+            return Err(SoftwareBackendAppError::SuppressedEventLoop {
                 event_loop_error: Box::new(event_loop_error),
                 suppressed: Box::new(app_err),
             });
         }
 
-        return Err(SoftwareBackendAppError::EventLoopError(Box::new(
+        return Err(SoftwareBackendAppError::EventLoop(Box::new(
             event_loop_error,
         )));
     }
