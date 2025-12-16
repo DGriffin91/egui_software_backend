@@ -11,6 +11,10 @@ constify = { path = "constify", version = "0.0.1"}
 
 rayon = { version = "1.11.0", optional = true }
 log = { version = "0.4.28", optional = true }
+winit = {version = "0.30", optional = true }
+softbuffer = { version = "0.4", optional = true }
+egui-winit = { version = "0.33", default-features = false, optional = true}
+bytemuck = { version = "1.23", optional = true }
 
 # Optional dependencies for automated testing: 
 egui_kittest = { version = "0.33", optional = true }
@@ -48,7 +52,7 @@ opt-level = 3
 members = ["examples/bevy_example", "constify"]
 
 [features]
-default = ["std"]
+default = ["std", "winit"]
 
 std = []
 
@@ -60,6 +64,7 @@ rayon = ["dep:rayon"]
 
 raster_stats = ["std"]
 test_render = ["dep:image", "dep:egui_kittest"]
+winit = ["dep:winit", "softbuffer", "egui-winit", "bytemuck"]
 
 # Testing:
 # cargo test --all
