@@ -1,29 +1,70 @@
 use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
 use core::fmt::{Display, Formatter};
 use core::num::NonZeroU32;
-use core::time::Duration;
-use egui::Context;
+use egui::{
+    Context, CursorGrab, IconData, Id, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
+    WindowLevel, X11WindowType,
+};
 use softbuffer::SoftBufferError;
 use std::boxed::Box;
 use std::error::Error;
-use std::format;
+use std::mem;
+use std::ops::Deref;
 use std::rc::Rc;
 use std::string::String;
-use std::string::ToString;
-use std::time::Instant;
-use std::vec::Vec;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
-use winit::window::{Icon, Window, WindowId};
+use winit::window::{CursorGrabMode, Fullscreen, Icon, Theme, Window, WindowButtons, WindowId};
 
+/// This struct contains statistics that might be captured while performing software rendering.
+/// The egui application should get these from the egui::Context.
+/// they can be used to calculate data needed to display performance metrics such as fps.
+///
+/// # Example
+/// ```rust
+///  use egui_software_backend::SoftwareBackendStats;
+///
+///  fn some_function_of_your_app(&mut self, ctx: &egui::Context) {
+///     egui::CentralPanel::default().show(ctx, |ui| {
+///     let stats : SoftwareBackendStats = SoftwareBackendStats::from_context(ctx);
+///     ui.label(format!(
+///         "Frame Time {}ms",
+///         stats.last_frame_time.as_millis()
+///         ));
+///     });
+///  }
+///
+/// ```
+#[derive(Debug, Default, Copy, Clone)]
+pub struct SoftwareBackendStats {
+    /// This is ZERO for the first frame, or permanently ZERO if capturing last frame time is disabled.
+    pub last_frame_time: Duration,
+}
+
+impl SoftwareBackendStats {
+    /// This fn gets the SoftwareBackendStats from the egui Context if available
+    /// or returns SoftwareBackendStats::default if they are not available.
+    pub fn from_context(ctx: &Context) -> Self {
+        ctx.data(|ctx| ctx.get_temp(Id::NULL)).unwrap_or_default()
+    }
+}
+
+/// Errors that can occur when using the egui software backend with winit.
 #[derive(Debug)]
 pub enum SoftwareBackendAppError {
+    /// A softbuffer error has occurred.
+    /// The softbuffer crate is used to manage the pixel buffer of the window.
     SoftBuffer {
         soft_buffer_error: Box<dyn Error>,
         function: &'static str,
     },
+
+    /// Some event loop error has occurred.
     EventLoop(Box<dyn Error>),
+
     /// The event loop has errored in addition to an error from the software renderer
     SuppressedEventLoop {
         event_loop_error: Box<dyn Error>,
@@ -74,102 +115,182 @@ impl SoftwareBackendAppError {
     }
 }
 
-/// Easily constructable winit application.
-struct WinitApp<EguiApp: App, Init, InitSurface, Handler> {
-    /// Closure to initialize `state`.
-    init: Init,
+// Doing what this suggest would make it impossible for the compiler
+// to optimize the layout of this enum, causing state machine transitions to be more expensive!
+#[allow(clippy::large_enum_variant)]
+/// Winit App State machine, that handles all states of our application.
+enum WinitAppStateMachine<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
+    /// The app has died, either without or with some sort of error.
+    Dead(Option<SoftwareBackendAppError>),
 
-    init_surface: InitSurface,
+    /// The app is configured, but the window has not been created yet.
+    /// Transitions into WindowInitialized (resume).
+    Configured(ConfiguredAppState<EguiApp, EguiAppFactory>),
 
-    /// Closure to run on window events.
-    event: Handler,
+    /// The window has been initialized.
+    /// Transitions into Dead (error) or Running (resume).
+    WindowInitialized(WindowInitializedAppState<EguiApp, EguiAppFactory>),
 
-    /// Contained state.
-    state: Option<Rc<Window>>,
-
-    /// Contained surface state.
-    surface_state: Option<WinitSurfaceState<EguiApp>>,
-
-    error: Option<SoftwareBackendAppError>,
+    /// The app is running.
+    /// Transitions into Dead (quit/error) or WindowInitialized (suspend)
+    Running(RunningEguiAppState<EguiApp, EguiAppFactory>),
 }
 
-impl<EguiApp: App, Init, InitSurface, Handler> WinitApp<EguiApp, Init, InitSurface, Handler>
-where
-    Init: FnMut(&ActiveEventLoop) -> Result<Rc<Window>, SoftwareBackendAppError>,
-    InitSurface: FnMut(
-        &ActiveEventLoop,
-        &mut Rc<Window>,
-    ) -> Result<WinitSurfaceState<EguiApp>, SoftwareBackendAppError>,
-    Handler: FnMut(
-        &mut Rc<Window>,
-        Option<&mut WinitSurfaceState<EguiApp>>,
-        Event<()>,
-        &ActiveEventLoop,
-    ) -> Result<(), SoftwareBackendAppError>,
+struct ConfiguredAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
+    config: SoftwareBackendAppConfiguration,
+    renderer: EguiSoftwareRender,
+    egui_context: Context,
+    egui_app_factory: EguiAppFactory,
+    softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
+}
+
+struct WindowInitializedAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
+    config: SoftwareBackendAppConfiguration,
+    renderer: EguiSoftwareRender,
+    egui_context: Context,
+    egui_app_factory: EguiAppFactory,
+    softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
+    window: Rc<Window>,
+}
+
+struct RunningEguiAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
+    config: SoftwareBackendAppConfiguration,
+    renderer: EguiSoftwareRender,
+    egui_context: Context,
+    egui_app_factory: EguiAppFactory,
+    softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
+    window: Rc<Window>,
+    surface: softbuffer::Surface<OwnedDisplayHandle, Rc<Window>>,
+    egui_winit: egui_winit::State,
+    egui_app: EguiApp,
+    last_frame_time: Duration,
+}
+
+impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> Default
+    for WinitAppStateMachine<EguiApp, EguiAppFactory>
 {
-    /// Create a new application.
-    pub(crate) fn new(init: Init, init_surface: InitSurface, event: Handler) -> Self {
-        Self {
-            init,
-            init_surface,
-            event,
-            state: None,
-            surface_state: None,
-            error: None,
-        }
+    fn default() -> Self {
+        Self::Dead(None)
     }
 }
 
-impl<EguiApp: App, Init, InitSurface, Handler> ApplicationHandler
-    for WinitApp<EguiApp, Init, InitSurface, Handler>
-where
-    Init: FnMut(&ActiveEventLoop) -> Result<Rc<Window>, SoftwareBackendAppError>,
-    InitSurface: FnMut(
-        &ActiveEventLoop,
-        &mut Rc<Window>,
-    ) -> Result<WinitSurfaceState<EguiApp>, SoftwareBackendAppError>,
-    Handler: FnMut(
-        &mut Rc<Window>,
-        Option<&mut WinitSurfaceState<EguiApp>>,
-        Event<()>,
-        &ActiveEventLoop,
-    ) -> Result<(), SoftwareBackendAppError>,
+impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
+    ConfiguredAppState<EguiApp, EguiAppFactory>
+{
+    pub(crate) fn create_window(
+        self,
+        elwt: &ActiveEventLoop,
+    ) -> Result<WindowInitializedAppState<EguiApp, EguiAppFactory>, SoftwareBackendAppError> {
+        let window =
+            egui_winit::create_window(&self.egui_context, elwt, &self.config.viewport_builder);
+
+        let window = window
+            .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
+            .map(Rc::new)?;
+
+        Ok(WindowInitializedAppState {
+            config: self.config,
+            renderer: self.renderer,
+            egui_context: self.egui_context,
+            egui_app_factory: self.egui_app_factory,
+            softbuffer_context: self.softbuffer_context,
+            window,
+        })
+    }
+}
+
+impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
+    WindowInitializedAppState<EguiApp, EguiAppFactory>
+{
+    pub(crate) fn create_surface(
+        mut self,
+    ) -> Result<RunningEguiAppState<EguiApp, EguiAppFactory>, SoftwareBackendAppError> {
+        let surface = softbuffer::Surface::new(&self.softbuffer_context, self.window.clone())
+            .map_err(SoftwareBackendAppError::soft_buffer(
+                "softbuffer::Surface::new",
+            ))?;
+
+        let egui_winit = egui_winit::State::new(
+            self.egui_context.clone(),
+            egui::ViewportId::ROOT,
+            &self.window,
+            Some(self.window.scale_factor() as f32),
+            None,
+            None,
+        );
+
+        let egui_app = (self.egui_app_factory)(self.egui_context.clone());
+
+        Ok(RunningEguiAppState {
+            config: self.config,
+            renderer: self.renderer,
+            egui_context: self.egui_context,
+            egui_app_factory: self.egui_app_factory,
+            softbuffer_context: self.softbuffer_context,
+            window: self.window,
+            surface,
+            egui_winit,
+            egui_app,
+            last_frame_time: Duration::ZERO,
+        })
+    }
+}
+
+impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
+    WinitAppStateMachine<EguiApp, EguiAppFactory>
+{
+    /// Create a new application.
+    pub(crate) fn new(
+        config: SoftwareBackendAppConfiguration,
+        renderer: EguiSoftwareRender,
+        softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
+        egui_app_factory: EguiAppFactory,
+    ) -> Self {
+        Self::Configured(ConfiguredAppState {
+            config,
+            renderer,
+            softbuffer_context,
+            egui_context: Context::default(),
+            egui_app_factory,
+        })
+    }
+}
+
+impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler
+    for WinitAppStateMachine<EguiApp, InitSurface>
 {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if el.exiting() {
             return;
         }
-        if let Some(state) = self.state.as_mut() {
-            if self.surface_state.is_some() {
-                return;
-            }
 
-            match (self.init_surface)(el, state) {
-                Ok(ss) => self.surface_state = Some(ss),
+        match mem::take(self) {
+            Self::Configured(state) => match state.create_window(el) {
+                Ok(ss) => {
+                    *self = Self::WindowInitialized(ss);
+                    self.resumed(el);
+                }
                 Err(e) => {
-                    self.error = Some(e);
+                    *self = Self::Dead(Some(e));
                     el.exit();
                 }
+            },
+            Self::WindowInitialized(state) => match state.create_surface() {
+                Ok(ss) => *self = Self::Running(ss),
+                Err(e) => {
+                    *self = Self::Dead(Some(e));
+                    el.exit();
+                }
+            },
+            Self::Running(state) => {
+                *self = Self::Running(state);
+                self.suspended(el);
+                self.resumed(el);
             }
-        } else {
-            debug_assert!(self.surface_state.is_none());
-            let state = match (self.init)(el) {
-                Ok(state) => state,
-                Err(e) => {
-                    self.error = Some(e);
-                    el.exit();
-                    return;
-                }
-            };
-            let state = self.state.insert(state);
-
-            match (self.init_surface)(el, state) {
-                Ok(ss) => self.surface_state = Some(ss),
-                Err(e) => {
-                    self.error = Some(e);
-                    el.exit();
-                }
-            };
+            Self::Dead(err) => {
+                *self = Self::Dead(err);
+                el.exit();
+            }
         }
     }
 
@@ -183,20 +304,21 @@ where
             return;
         }
 
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
-
-        let surface_state = self.surface_state.as_mut();
-
-        if let Err(e) = (self.event)(
-            state,
-            surface_state,
-            Event::WindowEvent { window_id, event },
-            event_loop,
-        ) {
-            self.error = Some(e);
-            event_loop.exit();
+        match self {
+            Self::Configured(_) | Self::WindowInitialized(_) => {
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
+            Self::Running(state) => {
+                if let Err(e) =
+                    state.handle_event(Event::WindowEvent { window_id, event }, event_loop)
+                {
+                    *self = Self::Dead(Some(e));
+                    event_loop.exit();
+                }
+            }
+            Self::Dead(_) => {
+                event_loop.exit();
+            }
         }
     }
 
@@ -205,29 +327,343 @@ where
             return;
         }
 
-        if let Some(state) = self.state.as_mut() {
-            if let Err(e) = (self.event)(
-                state,
-                self.surface_state.as_mut(),
-                Event::AboutToWait,
-                event_loop,
-            ) {
-                self.error = Some(e);
+        match self {
+            Self::Configured(_) | Self::WindowInitialized(_) => {
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
+            Self::Running(state) => {
+                if let Err(e) = state.handle_event(Event::AboutToWait, event_loop) {
+                    *self = Self::Dead(Some(e));
+                    event_loop.exit();
+                }
+            }
+            Self::Dead(_) => {
                 event_loop.exit();
             }
         }
     }
 
-    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.surface_state.take();
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        if event_loop.exiting() {
+            return;
+        }
+
+        match mem::take(self) {
+            Self::Dead(e) => {
+                *self = Self::Dead(e);
+                event_loop.exit();
+            }
+            Self::Configured(state) => {
+                *self = Self::Configured(state);
+            }
+            Self::WindowInitialized(window) => {
+                *self = Self::WindowInitialized(window);
+            }
+            Self::Running(state) => {
+                *self = Self::WindowInitialized(state.suspend());
+            }
+        }
     }
 }
 
-struct WinitSurfaceState<T: App> {
-    surface: softbuffer::Surface<OwnedDisplayHandle, Rc<Window>>,
-    egui_ctx: Context,
-    egui_app: T,
-    egui_winit: egui_winit::State,
+impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
+    RunningEguiAppState<EguiApp, EguiAppFactory>
+{
+    pub(crate) fn suspend(self) -> WindowInitializedAppState<EguiApp, EguiAppFactory> {
+        WindowInitializedAppState {
+            config: self.config,
+            renderer: self.renderer,
+            egui_context: self.egui_context,
+            egui_app_factory: self.egui_app_factory,
+            softbuffer_context: self.softbuffer_context,
+            window: self.window,
+        }
+    }
+    pub(crate) fn handle_event(
+        &mut self,
+        event: Event<()>,
+        elwt: &ActiveEventLoop,
+    ) -> Result<(), SoftwareBackendAppError> {
+        let start = if self.config.capture_frame_time {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
+        elwt.set_control_flow(ControlFlow::Wait);
+
+        let Event::WindowEvent {
+            window_id,
+            event: window_event,
+        } = event
+        else {
+            return Ok(());
+        };
+
+        if window_id != self.window.id() {
+            return Ok(());
+        }
+
+        let response = self
+            .egui_winit
+            .on_window_event(self.window.deref(), &window_event);
+
+        if response.repaint {
+            // Redraw when egui says it's necessary (e.g., mouse move, key press):
+            self.window.request_redraw();
+        }
+
+        match window_event {
+            WindowEvent::RedrawRequested => {
+                let size = self.window.inner_size();
+                let width = NonZeroU32::new(size.width).unwrap_or(ONE_PIXEL);
+                let height = NonZeroU32::new(size.height).unwrap_or(ONE_PIXEL);
+
+                self.surface.resize(width, height).map_err(
+                    SoftwareBackendAppError::soft_buffer("softbuffer::Surface::resize"),
+                )?;
+
+                let raw_input = self.egui_winit.take_egui_input(self.window.deref());
+
+                let full_output = self.egui_context.run(raw_input, |ctx| {
+                    if self.config.capture_frame_time {
+                        ctx.data_mut(|data| {
+                            data.insert_temp(
+                                Id::NULL,
+                                SoftwareBackendStats {
+                                    last_frame_time: self.last_frame_time,
+                                },
+                            )
+                        })
+                    }
+
+                    self.egui_app.update(ctx);
+                    self.egui_context.viewport(|r| {
+                        let mut die = false;
+                        for command in &r.commands {
+                            match command {
+                                ViewportCommand::Close => {
+                                    die = true;
+                                }
+                                ViewportCommand::CancelClose => {
+                                    die = false;
+                                }
+                                ViewportCommand::Title(title) => self.window.set_title(title),
+                                ViewportCommand::Transparent(trans) => {
+                                    self.window.set_transparent(*trans)
+                                }
+                                ViewportCommand::Visible(visi) => self.window.set_visible(*visi),
+                                ViewportCommand::OuterPosition(state) => {
+                                    self.window.set_outer_position(
+                                        winit::dpi::LogicalPosition::new(state.x, state.y),
+                                    );
+                                }
+                                ViewportCommand::InnerSize(state) => {
+                                    _ = self.window.request_inner_size(
+                                        winit::dpi::LogicalSize::new(state.x, state.y),
+                                    );
+                                }
+                                ViewportCommand::MinInnerSize(state) => {
+                                    self.window.set_min_inner_size(Some(
+                                        winit::dpi::LogicalSize::new(state.x, state.y),
+                                    ));
+                                }
+                                ViewportCommand::MaxInnerSize(state) => {
+                                    self.window.set_max_inner_size(Some(
+                                        winit::dpi::LogicalSize::new(state.x, state.y),
+                                    ));
+                                }
+                                ViewportCommand::ResizeIncrements(None) => {
+                                    self.window
+                                        .set_resize_increments::<winit::dpi::LogicalSize<f32>>(
+                                            None,
+                                        );
+                                }
+                                ViewportCommand::ResizeIncrements(Some(state)) => {
+                                    let size = winit::dpi::LogicalSize::new(state.x, state.y);
+                                    self.window.set_resize_increments(Some(size));
+                                }
+                                ViewportCommand::Resizable(state) => {
+                                    self.window.set_resizable(*state);
+                                }
+                                ViewportCommand::EnableButtons {
+                                    close,
+                                    maximize,
+                                    minimized,
+                                } => {
+                                    let mut button_state = WindowButtons::empty();
+                                    if *close {
+                                        button_state.set(WindowButtons::CLOSE, true);
+                                    }
+                                    if *maximize {
+                                        button_state.set(WindowButtons::MAXIMIZE, true);
+                                    }
+                                    if *minimized {
+                                        button_state.set(WindowButtons::MINIMIZE, true);
+                                    }
+
+                                    self.window.set_enabled_buttons(button_state);
+                                }
+                                ViewportCommand::Minimized(state) => {
+                                    self.window.set_minimized(*state);
+                                }
+                                ViewportCommand::Maximized(state) => {
+                                    self.window.set_maximized(*state);
+                                }
+                                ViewportCommand::Fullscreen(false) => {
+                                    self.window.set_fullscreen(None)
+                                }
+                                ViewportCommand::Fullscreen(true) => {
+                                    //TODO is this correct?
+                                    self.window
+                                        .set_fullscreen(Some(Fullscreen::Borderless(None)))
+                                }
+                                ViewportCommand::Decorations(dec) => {
+                                    self.window.set_decorations(*dec)
+                                }
+                                ViewportCommand::WindowLevel(WindowLevel::Normal) => {
+                                    self.window
+                                        .set_window_level(winit::window::WindowLevel::Normal);
+                                }
+                                ViewportCommand::WindowLevel(WindowLevel::AlwaysOnBottom) => {
+                                    self.window.set_window_level(
+                                        winit::window::WindowLevel::AlwaysOnBottom,
+                                    );
+                                }
+                                ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop) => {
+                                    self.window
+                                        .set_window_level(winit::window::WindowLevel::AlwaysOnTop);
+                                }
+                                ViewportCommand::Icon(ico) => {
+                                    self.window.set_window_icon(
+                                        ico.as_ref()
+                                            .map(|i| {
+                                                Icon::from_rgba(i.rgba.clone(), i.width, i.height)
+                                                    .ok()
+                                            })
+                                            .unwrap_or(None),
+                                    );
+                                }
+                                ViewportCommand::Focus => self.window.focus_window(),
+                                ViewportCommand::SetTheme(SystemTheme::Dark) => {
+                                    self.window.set_theme(Some(Theme::Dark))
+                                }
+                                ViewportCommand::SetTheme(SystemTheme::Light) => {
+                                    self.window.set_theme(Some(Theme::Light))
+                                }
+
+                                //Wtf, I don't think DXGI, or reading the X11 backbuffer cares about this.
+                                ViewportCommand::ContentProtected(x) => {
+                                    self.window.set_content_protected(*x);
+                                }
+
+                                ViewportCommand::CursorGrab(CursorGrab::Confined) => {
+                                    _ = self.window.set_cursor_grab(CursorGrabMode::Confined);
+                                }
+                                ViewportCommand::CursorGrab(CursorGrab::Locked) => {
+                                    _ = self.window.set_cursor_grab(CursorGrabMode::Locked);
+                                }
+                                ViewportCommand::CursorGrab(CursorGrab::None) => {
+                                    _ = self.window.set_cursor_grab(CursorGrabMode::None);
+                                }
+                                ViewportCommand::CursorVisible(visible) => {
+                                    self.window.set_cursor_visible(*visible);
+                                }
+                                ViewportCommand::RequestCut => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::RequestCopy => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::RequestPaste => {
+                                    //UNSUPPORTED
+                                }
+
+                                ViewportCommand::MousePassthrough(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::Screenshot(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::BeginResize(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::IMERect(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::IMEAllowed(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::IMEPurpose(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::CursorPosition(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::RequestUserAttention(_) => {
+                                    //UNSUPPORTED
+                                }
+                                ViewportCommand::StartDrag => {
+                                    //UNSUPPORTED
+                                }
+                                _ => {
+                                    //UNSUPPORTED
+                                }
+                            }
+
+                            if die {
+                                self.window.set_visible(false); //I wish eframe did this.
+                                elwt.exit();
+                            }
+                        }
+                    });
+                });
+
+                let clipped_primitives = self
+                    .egui_context
+                    .tessellate(full_output.shapes, full_output.pixels_per_point);
+
+                let mut buffer =
+                    self.surface
+                        .buffer_mut()
+                        .map_err(SoftwareBackendAppError::soft_buffer(
+                            "softbuffer::Surface::buffer_mut",
+                        ))?;
+                buffer.fill(0); // CLEAR
+
+                let buffer_ref = &mut BufferMutRef::new(
+                    bytemuck::cast_slice_mut(&mut buffer),
+                    width.get() as usize,
+                    height.get() as usize,
+                );
+
+                self.renderer.render(
+                    buffer_ref,
+                    &clipped_primitives,
+                    &full_output.textures_delta,
+                    full_output.pixels_per_point,
+                );
+
+                buffer
+                    .present()
+                    .map_err(SoftwareBackendAppError::soft_buffer(
+                        "softbuffer::Buffer::present",
+                    ))?;
+
+                if let Some(start) = start {
+                    self.last_frame_time = start.elapsed();
+                };
+            }
+
+            WindowEvent::CloseRequested => {
+                self.egui_app.on_exit(&self.egui_context);
+                elwt.exit();
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
 }
 
 pub trait App {
@@ -238,102 +674,296 @@ pub trait App {
 
 #[derive(Debug, Clone)]
 pub struct SoftwareBackendAppConfiguration {
-    width: f64,
-    height: f64,
-    title: Option<String>,
-    icon: Option<Icon>,
+    /// The underlying egui viewport builder that is used to create the window with winit.
+    pub viewport_builder: ViewportBuilder,
 
-    show_render_time_in_title: bool,
-    allow_raster_opt: bool,
-    convert_tris_to_rects: bool,
-    caching: bool,
-    resizeable: bool,
-    position: Option<(f64, f64)>,
-    decorations: bool,
+    /// Should the software renderer capture the frame time?, default false.
+    pub capture_frame_time: bool,
+
+    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
+    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
+    /// Rendering without caching is much slower and primarily intended for testing.
+    ///
+    /// Default is true!
+    pub allow_raster_opt: bool,
+
+    /// If true: attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
+    ///   Things *should* look the same with this set to `true` while rendering faster.
+    ///
+    /// Default is true!
+    pub convert_tris_to_rects: bool,
+
+    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
+    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
+    /// Rendering without caching is much slower and primarily intended for testing.
+    ///
+    /// Default is true!
+    pub caching: bool,
 }
 
 impl SoftwareBackendAppConfiguration {
+    /// Creates a new SoftwareBackendAppConfiguration using the default configuration.
     pub const fn new() -> Self {
+        //The constructor is not const.
+        let vp = ViewportBuilder {
+            title: None,
+            app_id: None,
+            position: None,
+            inner_size: Some(Vec2::new(320f32, 200f32)),
+            min_inner_size: None,
+            max_inner_size: None,
+            clamp_size_to_monitor_size: None,
+            fullscreen: None,
+            maximized: None,
+            resizable: None,
+            transparent: None,
+            decorations: None,
+            icon: None,
+            active: None,
+            visible: None,
+            fullsize_content_view: None,
+            movable_by_window_background: None,
+            title_shown: None,
+            titlebar_buttons_shown: None,
+            titlebar_shown: None,
+            has_shadow: None,
+            drag_and_drop: None,
+            taskbar: None,
+            close_button: None,
+            minimize_button: None,
+            maximize_button: None,
+            window_level: None,
+            mouse_passthrough: None,
+            window_type: None,
+        };
+
         Self {
             //CGA
-            width: 320.0,
-            height: 200.0,
+            viewport_builder: vp,
 
-            //Reasonable defaults
-            title: None,
-            icon: None,
-            show_render_time_in_title: false,
+            capture_frame_time: false,
             allow_raster_opt: true,
             convert_tris_to_rects: true,
             caching: true,
-            resizeable: true,
-            position: None,
-            decorations: true,
         }
     }
 
-    pub const fn width(mut self, width: f64) -> Self {
-        self.width = width;
+    /// This sets the egui viewport builder to the given builder. This replaces most settings.
+    pub fn viewport_builder(mut self, viewport_builder: ViewportBuilder) -> Self {
+        self.viewport_builder = viewport_builder;
         self
     }
 
-    pub const fn height(mut self, height: f64) -> Self {
-        self.height = height;
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn title(mut self, title: Option<String>) -> Self {
+        self.viewport_builder.title = title;
         self
     }
 
-    pub fn title(mut self, title: impl ToString) -> Self {
-        self.title = Some(title.to_string());
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn app_id(mut self, app_id: Option<String>) -> Self {
+        self.viewport_builder.app_id = app_id;
         self
     }
 
-    /// Set the icon to the given rgba data.
-    pub fn icon(mut self, icon_rgba: Vec<u8>, width: u32, height: u32) -> Self {
-        self.icon = Icon::from_rgba(icon_rgba, width, height).ok();
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn position(mut self, position: Option<Pos2>) -> Self {
+        self.viewport_builder.position = position;
         self
     }
 
-    pub fn no_icon(mut self) -> Self {
-        self.icon = None;
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn inner_size(mut self, inner_size: Option<Vec2>) -> Self {
+        self.viewport_builder.inner_size = inner_size;
         self
     }
 
-    pub const fn show_render_time_in_title(mut self, show_render_time_in_title: bool) -> Self {
-        self.show_render_time_in_title = show_render_time_in_title;
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn min_inner_size(mut self, min_inner_size: Option<Vec2>) -> Self {
+        self.viewport_builder.min_inner_size = min_inner_size;
         self
     }
 
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn max_inner_size(mut self, max_inner_size: Option<Vec2>) -> Self {
+        self.viewport_builder.max_inner_size = max_inner_size;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn clamp_size_to_monitor_size(
+        mut self,
+        clamp_size_to_monitor_size: Option<bool>,
+    ) -> Self {
+        self.viewport_builder.clamp_size_to_monitor_size = clamp_size_to_monitor_size;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn fullscreen(mut self, fullscreen: Option<bool>) -> Self {
+        self.viewport_builder.fullscreen = fullscreen;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn maximized(mut self, maximized: Option<bool>) -> Self {
+        self.viewport_builder.maximized = maximized;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn resizable(mut self, resizable: Option<bool>) -> Self {
+        self.viewport_builder.resizable = resizable;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn transparent(mut self, transparent: Option<bool>) -> Self {
+        self.viewport_builder.transparent = transparent;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn decorations(mut self, decorations: Option<bool>) -> Self {
+        self.viewport_builder.decorations = decorations;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn icon(mut self, icon: Option<Arc<IconData>>) -> Self {
+        self.viewport_builder.icon = icon;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn active(mut self, active: Option<bool>) -> Self {
+        self.viewport_builder.active = active;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn visible(mut self, visible: Option<bool>) -> Self {
+        self.viewport_builder.visible = visible;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn fullsize_content_view(mut self, fullsize_content_view: Option<bool>) -> Self {
+        self.viewport_builder.fullsize_content_view = fullsize_content_view;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn movable_by_window_background(
+        mut self,
+        movable_by_window_background: Option<bool>,
+    ) -> Self {
+        self.viewport_builder.movable_by_window_background = movable_by_window_background;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn title_shown(mut self, title_shown: Option<bool>) -> Self {
+        self.viewport_builder.title_shown = title_shown;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn titlebar_buttons_shown(mut self, titlebar_buttons_shown: Option<bool>) -> Self {
+        self.viewport_builder.titlebar_buttons_shown = titlebar_buttons_shown;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn titlebar_shown(mut self, titlebar_shown: Option<bool>) -> Self {
+        self.viewport_builder.titlebar_shown = titlebar_shown;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn has_shadow(mut self, has_shadow: Option<bool>) -> Self {
+        self.viewport_builder.has_shadow = has_shadow;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn drag_and_drop(mut self, drag_and_drop: Option<bool>) -> Self {
+        self.viewport_builder.has_shadow = drag_and_drop;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub fn taskbar(mut self, taskbar: Option<bool>) -> Self {
+        self.viewport_builder.has_shadow = taskbar;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn close_button(mut self, close_button: Option<bool>) -> Self {
+        self.viewport_builder.close_button = close_button;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn minimize_button(mut self, minimize_button: Option<bool>) -> Self {
+        self.viewport_builder.minimize_button = minimize_button;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn maximize_button(mut self, maximize_button: Option<bool>) -> Self {
+        self.viewport_builder.maximize_button = maximize_button;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn window_level(mut self, window_level: Option<WindowLevel>) -> Self {
+        self.viewport_builder.window_level = window_level;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn mouse_passthrough(mut self, mouse_passthrough: Option<bool>) -> Self {
+        self.viewport_builder.mouse_passthrough = mouse_passthrough;
+        self
+    }
+
+    /// See egui::viewport::ViewportBuilder. This is a convenience function that sets the field.
+    pub const fn window_type(mut self, window_type: Option<X11WindowType>) -> Self {
+        self.viewport_builder.window_type = window_type;
+        self
+    }
+
+    /// If false: Rasterize everything with triangles, always calculate vertex colors, uvs, use bilinear
+    ///   everywhere, etc... Things *should* look the same with this set to `true` while rendering faster.
+    ///
+    /// Default is true!
     pub const fn allow_raster_opt(mut self, allow_raster_opt: bool) -> Self {
         self.allow_raster_opt = allow_raster_opt;
         self
     }
 
+    /// If true: attempts to optimize by converting suitable triangle pairs into rectangles for faster rendering.
+    ///   Things *should* look the same with this set to `true` while rendering faster.
+    ///
+    /// Default is true!
     pub const fn convert_tris_to_rects(mut self, convert_tris_to_rects: bool) -> Self {
         self.convert_tris_to_rects = convert_tris_to_rects;
         self
     }
 
+    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
+    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
+    /// Rendering without caching is much slower and primarily intended for testing.
+    ///
+    /// Default is true!
     pub const fn caching(mut self, caching: bool) -> Self {
         self.caching = caching;
         self
     }
 
-    pub const fn resizeable(mut self, resizeable: bool) -> Self {
-        self.resizeable = resizeable;
-        self
-    }
-
-    pub const fn position(mut self, x: f64, y: f64) -> Self {
-        self.position = Some((x, y));
-        self
-    }
-
-    pub const fn no_position(mut self) -> Self {
-        self.position = None;
-        self
-    }
-    pub const fn decorations(mut self, decorations: bool) -> Self {
-        self.decorations = decorations;
+    pub const fn capture_frame_time(mut self, capture: bool) -> Self {
+        self.capture_frame_time = capture;
         self
     }
 }
@@ -348,14 +978,12 @@ const ONE_PIXEL: NonZeroU32 = NonZeroU32::new(1).unwrap();
 
 pub fn run_app_with_software_backend<T: App>(
     settings: SoftwareBackendAppConfiguration,
-    mut egui_app_factory: impl FnMut(Context) -> T,
+    egui_app_factory: impl FnMut(Context) -> T,
 ) -> Result<(), SoftwareBackendAppError> {
-    let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
+    let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(settings.allow_raster_opt)
         .with_convert_tris_to_rects(settings.convert_tris_to_rects)
         .with_caching(settings.caching);
-
-    let show_fps = settings.show_render_time_in_title;
 
     let event_loop: EventLoop<()> =
         EventLoop::new().map_err(|e| SoftwareBackendAppError::EventLoop(Box::new(e)))?;
@@ -364,163 +992,15 @@ pub fn run_app_with_software_backend<T: App>(
         SoftwareBackendAppError::soft_buffer("softbuffer::Context::new"),
     )?;
 
-    let mut last_update = Instant::now();
-    let mut frame_count: u32 = 0;
-
-    let mut app =
-        WinitApp::new(
-            |elwt: &ActiveEventLoop| {
-                let mut attributes = Window::default_attributes()
-                    .with_inner_size(winit::dpi::LogicalSize::new(
-                        settings.width,
-                        settings.height,
-                    ))
-                    .with_title(
-                        settings
-                            .title
-                            .clone()
-                            .unwrap_or_else(|| "egui software backend".to_string()),
-                    )
-                    .with_window_icon(settings.icon.clone())
-                    .with_resizable(settings.resizeable)
-                    .with_decorations(settings.decorations);
-
-                if let Some((x, y)) = settings.position.as_ref().copied() {
-                    attributes = attributes.with_position(winit::dpi::LogicalPosition::new(x, y));
-                }
-
-                let window = elwt.create_window(attributes);
-
-                window
-                    .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
-                    .map(Rc::new)
-            },
-            |_elwt, window: &mut Rc<Window>| {
-                let surface = softbuffer::Surface::new(&softbuffer_context, window.clone())
-                    .map_err(SoftwareBackendAppError::soft_buffer(
-                        "softbuffer::Surface::new",
-                    ))?;
-                let egui_ctx = Context::default();
-                let egui_winit = egui_winit::State::new(
-                    egui_ctx.clone(),
-                    egui::ViewportId::ROOT,
-                    &window,
-                    Some(window.scale_factor() as f32),
-                    None,
-                    None,
-                );
-
-                let egui_app = egui_app_factory(egui_ctx.clone());
-
-                Ok(WinitSurfaceState {
-                    surface,
-                    egui_app,
-                    egui_ctx,
-                    egui_winit,
-                })
-            },
-            |window: &mut Rc<Window>,
-             app: Option<&mut WinitSurfaceState<T>>,
-             event: Event<()>,
-             elwt: &ActiveEventLoop| {
-                elwt.set_control_flow(ControlFlow::Wait);
-                let Some(app) = app else {
-                    return Ok(());
-                };
-
-                let Event::WindowEvent {
-                    window_id,
-                    event: window_event,
-                } = event
-                else {
-                    return Ok(());
-                };
-
-                if window_id != window.id() {
-                    return Ok(());
-                }
-
-                let response = app.egui_winit.on_window_event(window, &window_event);
-
-                if response.repaint {
-                    // Redraw when egui says it's necessary (e.g., mouse move, key press):
-                    window.request_redraw();
-                }
-
-                match window_event {
-                    WindowEvent::RedrawRequested => {
-                        let size = window.inner_size();
-                        let width = NonZeroU32::new(size.width).unwrap_or(ONE_PIXEL);
-                        let height = NonZeroU32::new(size.height).unwrap_or(ONE_PIXEL);
-
-                        app.surface.resize(width, height).map_err(
-                            SoftwareBackendAppError::soft_buffer("softbuffer::Surface::resize"),
-                        )?;
-
-                        let raw_input = app.egui_winit.take_egui_input(window);
-
-                        let full_output = app.egui_ctx.run(raw_input, |ctx| {
-                            app.egui_app.update(ctx);
-                        });
-
-                        let clipped_primitives = app
-                            .egui_ctx
-                            .tessellate(full_output.shapes, full_output.pixels_per_point);
-
-                        let mut buffer = app.surface.buffer_mut().map_err(
-                            SoftwareBackendAppError::soft_buffer("softbuffer::Surface::buffer_mut"),
-                        )?;
-                        buffer.fill(0); // CLEAR
-
-                        let buffer_ref = &mut BufferMutRef::new(
-                            bytemuck::cast_slice_mut(&mut buffer),
-                            width.get() as usize,
-                            height.get() as usize,
-                        );
-
-                        egui_software_render.render(
-                            buffer_ref,
-                            &clipped_primitives,
-                            &full_output.textures_delta,
-                            full_output.pixels_per_point,
-                        );
-
-                        buffer
-                            .present()
-                            .map_err(SoftwareBackendAppError::soft_buffer(
-                                "softbuffer::Buffer::present",
-                            ))?;
-
-                        if show_fps {
-                            frame_count += 1;
-
-                            let now = Instant::now();
-                            if now.duration_since(last_update) >= Duration::from_secs(1) {
-                                let fps = frame_count as f64
-                                    / now.duration_since(last_update).as_secs_f64();
-                                window.set_title(&format!(
-                                    "egui software backend - {:.2}ms",
-                                    1000.0 / fps
-                                ));
-                                frame_count = 0;
-                                last_update = now;
-                            }
-                        }
-                    }
-
-                    WindowEvent::CloseRequested => {
-                        app.egui_app.on_exit(&app.egui_ctx);
-                        elwt.exit();
-                    }
-                    _ => {}
-                }
-
-                Ok(())
-            },
-        );
+    let mut app = WinitAppStateMachine::new(
+        settings.clone(),
+        egui_software_render,
+        softbuffer_context,
+        egui_app_factory,
+    );
 
     if let Err(event_loop_error) = event_loop.run_app(&mut app) {
-        if let Some(app_err) = app.error.take() {
+        if let WinitAppStateMachine::Dead(Some(app_err)) = app {
             return Err(SoftwareBackendAppError::SuppressedEventLoop {
                 event_loop_error: Box::new(event_loop_error),
                 suppressed: Box::new(app_err),
@@ -532,5 +1012,9 @@ pub fn run_app_with_software_backend<T: App>(
         )));
     }
 
-    app.error.take().map(Err).unwrap_or(Ok(()))
+    if let WinitAppStateMachine::Dead(Some(app_err)) = app {
+        return Err(app_err);
+    }
+
+    Ok(())
 }

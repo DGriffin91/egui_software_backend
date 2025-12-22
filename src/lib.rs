@@ -38,7 +38,9 @@ pub mod test_render;
 mod winit;
 
 #[cfg(feature = "winit")]
-pub use winit::{App, SoftwareBackendAppConfiguration, run_app_with_software_backend};
+pub use winit::{
+    App, SoftwareBackendAppConfiguration, SoftwareBackendStats, run_app_with_software_backend,
+};
 
 #[inline(always)]
 #[allow(dead_code)]
