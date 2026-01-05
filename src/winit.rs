@@ -1,6 +1,4 @@
 use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
-use core::fmt::{Display, Formatter};
-use core::num::NonZeroU32;
 use egui::{
     Context, CursorGrab, IconData, Id, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
     WindowLevel, X11WindowType,
@@ -8,12 +6,15 @@ use egui::{
 use softbuffer::SoftBufferError;
 use std::boxed::Box;
 use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::mem;
+use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::string::String;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::vec::Vec;
 use winit::application::ApplicationHandler;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
@@ -164,6 +165,9 @@ struct RunningEguiAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiA
     egui_winit: egui_winit::State,
     egui_app: EguiApp,
     last_frame_time: Duration,
+    fullscreen: bool,
+    visible: bool,
+    input_events: Vec<egui::Event>,
 }
 
 impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> Default
@@ -178,15 +182,29 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
     ConfiguredAppState<EguiApp, EguiAppFactory>
 {
     pub(crate) fn create_window(
-        self,
+        mut self,
         elwt: &ActiveEventLoop,
     ) -> Result<WindowInitializedAppState<EguiApp, EguiAppFactory>, SoftwareBackendAppError> {
+        // !BUG IN WAYLAND!
+        // if resizeable false during window creation you can never make the window resizable again.
+        // We always force None before we call into egui_winit and set it on the window object later.
+        let resizeable = self
+            .config
+            .viewport_builder
+            .resizable
+            .take()
+            .unwrap_or(true);
+
         let window =
             egui_winit::create_window(&self.egui_context, elwt, &self.config.viewport_builder);
+
+        self.config.viewport_builder.resizable = Some(resizeable);
 
         let window = window
             .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
             .map(Rc::new)?;
+
+        window.set_resizable(resizeable);
 
         Ok(WindowInitializedAppState {
             config: self.config,
@@ -220,6 +238,8 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         );
 
         let egui_app = (self.egui_app_factory)(self.egui_context.clone());
+        let fullscreen = self.config.viewport_builder.fullscreen.unwrap_or_default();
+        let visible = self.config.viewport_builder.visible.unwrap_or(true);
 
         Ok(RunningEguiAppState {
             config: self.config,
@@ -232,6 +252,9 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
             egui_winit,
             egui_app,
             last_frame_time: Duration::ZERO,
+            fullscreen,
+            visible,
+            input_events: Vec::new(),
         })
     }
 }
@@ -423,7 +446,12 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                     SoftwareBackendAppError::soft_buffer("softbuffer::Surface::resize"),
                 )?;
 
-                let raw_input = self.egui_winit.take_egui_input(self.window.deref());
+                let mut raw_input = self.egui_winit.take_egui_input(self.window.deref());
+
+                raw_input
+                    .events
+                    .extend_from_slice(self.input_events.as_slice());
+                self.input_events.clear();
 
                 let full_output = self.egui_context.run(raw_input, |ctx| {
                     if self.config.capture_frame_time {
@@ -438,6 +466,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                     }
 
                     self.egui_app.update(ctx);
+
                     self.egui_context.viewport(|r| {
                         let mut die = false;
                         for command in &r.commands {
@@ -452,7 +481,26 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                                 ViewportCommand::Transparent(trans) => {
                                     self.window.set_transparent(*trans)
                                 }
-                                ViewportCommand::Visible(visi) => self.window.set_visible(*visi),
+                                ViewportCommand::Visible(true) => {
+                                    self.visible = true;
+                                    self.window.set_visible(true);
+                                    if self.fullscreen {
+                                        self.window
+                                            .set_fullscreen(Some(Fullscreen::Borderless(None)));
+                                    } else {
+                                        self.window.set_fullscreen(None);
+                                    }
+                                }
+                                ViewportCommand::Visible(false) => {
+                                    self.visible = false;
+                                    // Needed because otherwise fullscreen mode never works again.
+                                    self.window.set_fullscreen(None);
+
+                                    // Needed because otherwise cursor grab needs to be manually set to none before it can be enabled again
+                                    _ = self.window.set_cursor_grab(CursorGrabMode::None);
+
+                                    self.window.set_visible(false)
+                                }
                                 ViewportCommand::OuterPosition(state) => {
                                     self.window.set_outer_position(
                                         winit::dpi::LogicalPosition::new(state.x, state.y),
@@ -511,12 +559,17 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                                     self.window.set_maximized(*state);
                                 }
                                 ViewportCommand::Fullscreen(false) => {
-                                    self.window.set_fullscreen(None)
+                                    self.fullscreen = false;
+                                    if self.visible {
+                                        self.window.set_fullscreen(None)
+                                    }
                                 }
                                 ViewportCommand::Fullscreen(true) => {
-                                    //TODO is this correct?
-                                    self.window
-                                        .set_fullscreen(Some(Fullscreen::Borderless(None)))
+                                    self.fullscreen = true;
+                                    if self.visible {
+                                        self.window
+                                            .set_fullscreen(Some(Fullscreen::Borderless(None)))
+                                    }
                                 }
                                 ViewportCommand::Decorations(dec) => {
                                     self.window.set_decorations(*dec)
@@ -551,6 +604,12 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                                 ViewportCommand::SetTheme(SystemTheme::Light) => {
                                     self.window.set_theme(Some(Theme::Light))
                                 }
+                                ViewportCommand::SetTheme(SystemTheme::SystemDefault) => {
+                                    // Winit has no default...
+                                    // we will just use light as that is the default
+                                    // of most operating systems.
+                                    self.window.set_theme(Some(Theme::Light))
+                                }
 
                                 //Wtf, I don't think DXGI, or reading the X11 backbuffer cares about this.
                                 ViewportCommand::ContentProtected(x) => {
@@ -570,20 +629,21 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                                     self.window.set_cursor_visible(*visible);
                                 }
                                 ViewportCommand::RequestCut => {
-                                    //UNSUPPORTED
+                                    self.input_events.push(egui::Event::Cut);
                                 }
                                 ViewportCommand::RequestCopy => {
-                                    //UNSUPPORTED
+                                    self.input_events.push(egui::Event::Copy);
                                 }
                                 ViewportCommand::RequestPaste => {
-                                    //UNSUPPORTED
+                                    if let Some(content) = self.egui_winit.clipboard_text() {
+                                        self.input_events.push(egui::Event::Paste(content));
+                                    }
                                 }
-
                                 ViewportCommand::MousePassthrough(_) => {
                                     //UNSUPPORTED
                                 }
                                 ViewportCommand::Screenshot(_) => {
-                                    //UNSUPPORTED
+                                    //UNSUPPORTED (YET)
                                 }
                                 ViewportCommand::BeginResize(_) => {
                                     //UNSUPPORTED
@@ -606,9 +666,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                                 ViewportCommand::StartDrag => {
                                     //UNSUPPORTED
                                 }
-                                _ => {
-                                    //UNSUPPORTED
-                                }
                             }
 
                             if die {
@@ -618,6 +675,10 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                         }
                     });
                 });
+
+                //Makes the clipboard work.
+                self.egui_winit
+                    .handle_platform_output(self.window.deref(), full_output.platform_output);
 
                 let clipped_primitives = self
                     .egui_context
