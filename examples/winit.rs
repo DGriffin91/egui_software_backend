@@ -19,10 +19,7 @@ impl egui_software_backend::App for EguiApp {
 
             ui.label("Hello World!");
             ui.label(format!("Frame Time {}ns", last_frame_time.as_nanos()));
-            ui.label(format!(
-                "Frame Time {}ms",
-                last_frame_time.as_millis()
-            ));
+            ui.label(format!("Frame Time {}ms", last_frame_time.as_millis()));
         });
     }
 }

@@ -39,7 +39,7 @@ mod winit;
 
 #[cfg(feature = "winit")]
 pub use winit::{
-    App, SoftwareBackendAppConfiguration, SoftwareBackend, run_app_with_software_backend,
+    App, SoftwareBackend, SoftwareBackendAppConfiguration, run_app_with_software_backend,
 };
 
 #[inline(always)]

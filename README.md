@@ -18,11 +18,10 @@ sw_render.render(buffer, &primitives, &out.textures_delta, out.pixels_per_point)
 
 ## winit quickstart
 ```rust
-use egui_software_backend::SoftwareBackendAppConfiguration;
+use egui::Vec2;
+use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
 
-struct EguiApp {
-
-}
+struct EguiApp {}
 
 impl EguiApp {
     fn new(context: egui::Context) -> Self {
@@ -32,20 +31,18 @@ impl EguiApp {
 }
 
 impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ctx: &egui::Context) {
+    fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.label("Hello World!");
         });
     }
 }
 
-
 fn main() {
     let settings = SoftwareBackendAppConfiguration::new()
-        .width(500.0)
-        .height(300.0)
-        .resizeable(false)
-        .title("Simple example");
+        .inner_size(Some(Vec2::new(500f32, 300f32)))
+        .resizable(Some(false))
+        .title(Some("Simple example".to_string()));
 
     egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
         //Can fail if winit fails to create the window
@@ -54,6 +51,4 @@ fn main() {
 ```
 
 ## Other examples
-
-- winit + softbuffer example: `cargo run --example winit`
-- bevy + softbuffer example: `cargo run -p bevy_example`
+- bevy + softbuffer see examples/bevy_example folder

@@ -18,7 +18,6 @@ impl EguiApp {
     }
 
     fn update(&mut self, ctx: &egui::Context) {
-
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::scroll_area::ScrollArea::both().show(ui, |ui| {
                 if ui
