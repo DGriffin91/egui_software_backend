@@ -1,6 +1,6 @@
 use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
 use egui::{
-    Context, CursorGrab, IconData, Id, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
+    Context, CursorGrab, IconData, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
     WindowLevel, X11WindowType,
 };
 use softbuffer::SoftBufferError;
@@ -19,39 +19,6 @@ use winit::application::ApplicationHandler;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
 use winit::window::{CursorGrabMode, Fullscreen, Icon, Theme, Window, WindowButtons, WindowId};
-
-/// This struct contains statistics that might be captured while performing software rendering.
-/// The egui application should get these from the egui::Context.
-/// they can be used to calculate data needed to display performance metrics such as fps.
-///
-/// # Example
-/// ```rust
-///  use egui_software_backend::SoftwareBackendStats;
-///
-///  fn some_function_of_your_app(&mut self, ctx: &egui::Context) {
-///     egui::CentralPanel::default().show(ctx, |ui| {
-///     let stats : SoftwareBackendStats = SoftwareBackendStats::from_context(ctx);
-///     ui.label(format!(
-///         "Frame Time {}ms",
-///         stats.last_frame_time.as_millis()
-///         ));
-///     });
-///  }
-///
-/// ```
-#[derive(Debug, Default, Copy, Clone)]
-pub struct SoftwareBackendStats {
-    /// This is ZERO for the first frame, or permanently ZERO if capturing last frame time is disabled.
-    pub last_frame_time: Duration,
-}
-
-impl SoftwareBackendStats {
-    /// This fn gets the SoftwareBackendStats from the egui Context if available
-    /// or returns SoftwareBackendStats::default if they are not available.
-    pub fn from_context(ctx: &Context) -> Self {
-        ctx.data(|ctx| ctx.get_temp(Id::NULL)).unwrap_or_default()
-    }
-}
 
 /// Errors that can occur when using the egui software backend with winit.
 #[derive(Debug)]
@@ -138,33 +105,48 @@ enum WinitAppStateMachine<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiAp
 }
 
 struct ConfiguredAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
-    config: SoftwareBackendAppConfiguration,
-    renderer: EguiSoftwareRender,
+    /////////// DANGER ZONE DO NOT CHANGE THE ORDER OF THOSE FIELDS ////////////////////
+    // WAYLAND BUG: The wayland clipboard blows up with a segmentation fault if
+    // If the fields are dropped in the wrong order. Literally any other platform does not care!
     egui_context: Context,
-    egui_app_factory: EguiAppFactory,
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
+
+    /////////////////// END OF DANGER ZONE//////////////////////////////////////
+    config: SoftwareBackendAppConfiguration,
+    software_backend: SoftwareBackend,
+    renderer: EguiSoftwareRender,
+    egui_app_factory: EguiAppFactory,
 }
 
 struct WindowInitializedAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
-    config: SoftwareBackendAppConfiguration,
-    renderer: EguiSoftwareRender,
+    /////////// DANGER ZONE DO NOT CHANGE THE ORDER OF THOSE FIELDS ////////////////////
+    // WAYLAND BUG: The wayland clipboard blows up with a segmentation fault if
+    // If the fields are dropped in the wrong order. Literally any other platform does not care!
     egui_context: Context,
-    egui_app_factory: EguiAppFactory,
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
     window: Rc<Window>,
+    /////////////////// END OF DANGER ZONE//////////////////////////////////////
+    config: SoftwareBackendAppConfiguration,
+    software_backend: SoftwareBackend,
+    renderer: EguiSoftwareRender,
+    egui_app_factory: EguiAppFactory,
 }
 
 struct RunningEguiAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
-    config: SoftwareBackendAppConfiguration,
-    renderer: EguiSoftwareRender,
+    /////////// DANGER ZONE DO NOT CHANGE THE ORDER OF THOSE FIELDS ////////////////////
+    // WAYLAND BUG: The wayland clipboard blows up with a segmentation fault if
+    // If the fields are dropped in the wrong order. Literally any other platform does not care!
     egui_context: Context,
-    egui_app_factory: EguiAppFactory,
-    softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
-    window: Rc<Window>,
     surface: softbuffer::Surface<OwnedDisplayHandle, Rc<Window>>,
     egui_winit: egui_winit::State,
+    window: Rc<Window>,
+    /////////////////// END OF DANGER ZONE//////////////////////////////////////
+    config: SoftwareBackendAppConfiguration,
+    software_backend: SoftwareBackend,
+    renderer: EguiSoftwareRender,
+    egui_app_factory: EguiAppFactory,
+    softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
     egui_app: EguiApp,
-    last_frame_time: Duration,
     fullscreen: bool,
     visible: bool,
     input_events: Vec<egui::Event>,
@@ -208,6 +190,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 
         Ok(WindowInitializedAppState {
             config: self.config,
+            software_backend: self.software_backend,
             renderer: self.renderer,
             egui_context: self.egui_context,
             egui_app_factory: self.egui_app_factory,
@@ -251,10 +234,10 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
             surface,
             egui_winit,
             egui_app,
-            last_frame_time: Duration::ZERO,
             fullscreen,
             visible,
             input_events: Vec::new(),
+            software_backend: self.software_backend,
         })
     }
 }
@@ -271,6 +254,10 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
     ) -> Self {
         Self::Configured(ConfiguredAppState {
             config,
+            software_backend: SoftwareBackend {
+                capture_frame_time: false,
+                last_frame_time: None,
+            },
             renderer,
             softbuffer_context,
             egui_context: Context::default(),
@@ -395,6 +382,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
     pub(crate) fn suspend(self) -> WindowInitializedAppState<EguiApp, EguiAppFactory> {
         WindowInitializedAppState {
             config: self.config,
+            software_backend: self.software_backend,
             renderer: self.renderer,
             egui_context: self.egui_context,
             egui_app_factory: self.egui_app_factory,
@@ -407,7 +395,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         event: Event<()>,
         elwt: &ActiveEventLoop,
     ) -> Result<(), SoftwareBackendAppError> {
-        let start = if self.config.capture_frame_time {
+        let start = if self.software_backend.capture_frame_time {
             Some(Instant::now())
         } else {
             None
@@ -454,18 +442,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                 self.input_events.clear();
 
                 let full_output = self.egui_context.run(raw_input, |ctx| {
-                    if self.config.capture_frame_time {
-                        ctx.data_mut(|data| {
-                            data.insert_temp(
-                                Id::NULL,
-                                SoftwareBackendStats {
-                                    last_frame_time: self.last_frame_time,
-                                },
-                            )
-                        })
-                    }
-
-                    self.egui_app.update(ctx);
+                    self.egui_app.update(ctx, &mut self.software_backend);
 
                     self.egui_context.viewport(|r| {
                         let mut die = false;
@@ -711,9 +688,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                         "softbuffer::Buffer::present",
                     ))?;
 
-                if let Some(start) = start {
-                    self.last_frame_time = start.elapsed();
-                };
+                self.software_backend.last_frame_time = start.map(|a| a.elapsed());
             }
 
             WindowEvent::CloseRequested => {
@@ -727,8 +702,61 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
     }
 }
 
+/// This struct contains statistics as well as possible interactions with the software renderer.
+///
+/// # Example
+/// ```rust
+///  use egui_software_backend::{App, SoftwareBackend};
+///
+/// struct MyApp {
+///
+/// }
+///
+/// impl App for MyApp {
+///     fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
+///         backend.set_capture_frame_time(true);
+///
+///
+///        egui::CentralPanel::default().show(ctx, |ui| {
+///        ui.label(format!(
+///           "Frame Time {}ms",
+///            backend.last_frame_time().unwrap_or_default().as_millis()
+///         ));
+///     });
+///    }
+/// }
+///
+/// ```
+pub struct SoftwareBackend {
+    capture_frame_time: bool,
+    last_frame_time: Option<Duration>,
+}
+
+impl SoftwareBackend {
+
+    /// Returns true if the frame time for the next frame is captured.
+    pub fn is_capture_frame_time(&self) -> bool {
+        self.capture_frame_time
+    }
+
+    /// Enables or disables capturing the frame time.
+    /// Note that once this is called, the value persists until this function is called again.
+    /// Calling this with true will not affect the current frame, so once this is called with true,
+    /// you will need to wait for 2 more frames until you get a value.
+    pub fn set_capture_frame_time(&mut self, capture: bool) {
+        self.capture_frame_time = capture;
+    }
+
+    /// Returns the rendering duration of the last frame if this information is available.
+    /// Returns none otherwise. Note that this information is only captured is `set_capture_frame_time`
+    /// is called with true.
+    pub fn last_frame_time(&self) -> Option<Duration> {
+        self.last_frame_time
+    }
+}
+
 pub trait App {
-    fn update(&mut self, ctx: &Context);
+    fn update(&mut self, ctx: &Context, software_backend: &mut SoftwareBackend);
 
     fn on_exit(&mut self, _ctx: &Context) {}
 }
@@ -737,9 +765,6 @@ pub trait App {
 pub struct SoftwareBackendAppConfiguration {
     /// The underlying egui viewport builder that is used to create the window with winit.
     pub viewport_builder: ViewportBuilder,
-
-    /// Should the software renderer capture the frame time?, default false.
-    pub capture_frame_time: bool,
 
     /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
     /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
@@ -770,6 +795,7 @@ impl SoftwareBackendAppConfiguration {
             title: None,
             app_id: None,
             position: None,
+            //CGA
             inner_size: Some(Vec2::new(320f32, 200f32)),
             min_inner_size: None,
             max_inner_size: None,
@@ -799,10 +825,8 @@ impl SoftwareBackendAppConfiguration {
         };
 
         Self {
-            //CGA
             viewport_builder: vp,
 
-            capture_frame_time: false,
             allow_raster_opt: true,
             convert_tris_to_rects: true,
             caching: true,
@@ -1020,11 +1044,6 @@ impl SoftwareBackendAppConfiguration {
     /// Default is true!
     pub const fn caching(mut self, caching: bool) -> Self {
         self.caching = caching;
-        self
-    }
-
-    pub const fn capture_frame_time(mut self, capture: bool) -> Self {
-        self.capture_frame_time = capture;
         self
     }
 }

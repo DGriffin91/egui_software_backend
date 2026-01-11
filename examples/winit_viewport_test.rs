@@ -1,6 +1,6 @@
 use eframe::Frame;
 use egui::{Context, CursorGrab, SystemTheme, Vec2, ViewportCommand, vec2};
-use egui_software_backend::SoftwareBackendAppConfiguration;
+use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
 use std::thread;
 use std::time::Duration;
 
@@ -12,20 +12,13 @@ struct EguiApp {
 }
 
 impl EguiApp {
-    fn new(context: egui::Context) -> Self {
+    fn new(context: Context) -> Self {
         egui_extras::install_image_loaders(&context);
         EguiApp::default()
     }
-}
 
-impl eframe::App for EguiApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        egui_software_backend::App::update(self, ctx);
-    }
-}
-
-impl egui_software_backend::App for EguiApp {
     fn update(&mut self, ctx: &egui::Context) {
+
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::scroll_area::ScrollArea::both().show(ui, |ui| {
                 if ui
@@ -204,25 +197,45 @@ impl egui_software_backend::App for EguiApp {
     }
 }
 
+impl eframe::App for EguiApp {
+    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        EguiApp::update(self, ctx);
+    }
+}
+
+impl egui_software_backend::App for EguiApp {
+    fn update(&mut self, ctx: &Context, _backend: &mut SoftwareBackend) {
+        EguiApp::update(self, ctx);
+    }
+}
+
 fn main() {
     let settings = SoftwareBackendAppConfiguration::new()
         .inner_size(Some(Vec2::new(500f32, 300f32)))
         .resizable(Some(false))
-        .capture_frame_time(true)
         .title(Some("Viewport Command Tester".to_string()));
 
-    egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
-        //Can fail if winit fails to create the window
+    if std::env::var("USE_EFRAME").unwrap_or_default() == "true" {
+        eprintln!("WILL RUN USING EFRAME");
+        //eframe for reference.
+        let mut native_options = eframe::NativeOptions::default();
+        native_options.run_and_return = true;
+        native_options.viewport.resizable = Some(false);
+        native_options.viewport.title = Some("Viewport Command Tester".to_string());
+        native_options.viewport.inner_size = Some(Vec2::new(300f32, 300f32));
+        eframe::run_native(
+            "Viewport Command Tester",
+            native_options,
+            Box::new(|cc| Ok(Box::new(EguiApp::new(cc.egui_ctx.clone())))),
+        )
         .expect("Failed to run app");
+    } else {
+        eprintln!("WILL RUN USING SWR");
 
-    //eframe for reference.
-    //let native_options = eframe::NativeOptions::default();
-    //eframe::run_native(
-    //    "Viewport Command Tester",
-    //    native_options,
-    //    Box::new(|cc| Ok(Box::new(EguiApp::new(cc.egui_ctx.clone())))),
-    //)
-    //.expect("Failed to run app");
+        egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
+            //Can fail if winit fails to create the window
+            .expect("Failed to run app");
+    }
 
     eprintln!("EVENT LOOP EXIT WITHOUT ERROR. WAITING 5s");
     thread::sleep(Duration::from_secs(5));
