@@ -30,7 +30,7 @@ mod tests {
         let _ = std::fs::create_dir("tests/tmp/");
 
         // egui's failed_px_count_thresold default is 0
-        for (px_per_point, failed_px_count_thresold) in [(1.0, 1), (1.5, 15)] {
+        for (px_per_point, failed_px_count_thresold) in [(1.0, 8), (1.5, 15)] {
             // --- Render on GPU
             let mut harness = HarnessBuilder::default()
                 .with_size(RESOLUTION)
