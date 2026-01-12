@@ -16,5 +16,39 @@ let primitives = ctx.tessellate(out.shapes, out.pixels_per_point);
 sw_render.render(buffer, &primitives, &out.textures_delta, out.pixels_per_point);
 ```
 
-- winit + softbuffer example: `cargo run --example winit`
-- bevy + softbuffer example: `cargo run -p bevy_example`
+## winit quickstart
+```rust
+use egui::Vec2;
+use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
+
+struct EguiApp {}
+
+impl EguiApp {
+    fn new(context: egui::Context) -> Self {
+        egui_extras::install_image_loaders(&context);
+        EguiApp {}
+    }
+}
+
+impl egui_software_backend::App for EguiApp {
+    fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.label("Hello World!");
+        });
+    }
+}
+
+fn main() {
+    let settings = SoftwareBackendAppConfiguration::new()
+        .inner_size(Some(Vec2::new(500f32, 300f32)))
+        .resizable(Some(false))
+        .title(Some("Simple example".to_string()));
+
+    egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
+        //Can fail if winit fails to create the window
+        .expect("Failed to run app")
+}
+```
+
+## Other examples
+- bevy + softbuffer see examples/bevy_example folder

@@ -34,6 +34,14 @@ pub mod stats;
 #[cfg(feature = "test_render")]
 pub mod test_render;
 
+#[cfg(feature = "winit")]
+mod winit;
+
+#[cfg(feature = "winit")]
+pub use winit::{
+    App, SoftwareBackend, SoftwareBackendAppConfiguration, run_app_with_software_backend,
+};
+
 #[inline(always)]
 #[allow(dead_code)]
 pub(crate) fn sse41() -> bool {

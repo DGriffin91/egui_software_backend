@@ -18,3 +18,5 @@ softbuffer = { version = "0.4" }
 image = { version = "0.25", features = ["jpeg", "png"] }
 bytemuck = { version = "1.23" }
 argh = "0.1"
+
+[workspace]
