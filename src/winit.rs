@@ -168,9 +168,9 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         elwt: &ActiveEventLoop,
     ) -> Result<WindowInitializedAppState<EguiApp, EguiAppFactory>, SoftwareBackendAppError> {
         // !BUG IN WAYLAND!
-        // if resizeable false during window creation you can never make the window resizable again.
+        // if resizable false during window creation you can never make the window resizable again.
         // We always force None before we call into egui_winit and set it on the window object later.
-        let resizeable = self
+        let resizable = self
             .config
             .viewport_builder
             .resizable
@@ -180,13 +180,13 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         let window =
             egui_winit::create_window(&self.egui_context, elwt, &self.config.viewport_builder);
 
-        self.config.viewport_builder.resizable = Some(resizeable);
+        self.config.viewport_builder.resizable = Some(resizable);
 
         let window = window
             .map_err(|ose| SoftwareBackendAppError::CreateWindowOs(Box::new(ose)))
             .map(Rc::new)?;
 
-        window.set_resizable(resizeable);
+        window.set_resizable(resizable);
 
         Ok(WindowInitializedAppState {
             config: self.config,

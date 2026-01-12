@@ -61,11 +61,11 @@ impl EguiApp {
                     });
                 }
 
-                if ui.button("Resizeable(false)").clicked() {
+                if ui.button("Resizable(false)").clicked() {
                     ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
                 }
 
-                if ui.button("Resizeable(true)").clicked() {
+                if ui.button("Resizable(true)").clicked() {
                     ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
                 }
 
