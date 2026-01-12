@@ -83,8 +83,8 @@ impl SoftwareBackendAppError {
     }
 }
 
-// Doing what this suggest would make it impossible for the compiler
-// to optimize the layout of this enum, causing state machine transitions to be more expensive!
+// Doing what clippy suggests would make it impossible for the compiler to optimize the layout of this enum, causing
+// state machine transitions to be more expensive!
 #[allow(clippy::large_enum_variant)]
 /// Winit App State machine, that handles all states of our application.
 enum WinitAppStateMachine<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
@@ -107,10 +107,10 @@ enum WinitAppStateMachine<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiAp
 struct ConfiguredAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
     /////////// DANGER ZONE DO NOT CHANGE THE ORDER OF THOSE FIELDS ////////////////////
     // WAYLAND BUG: The wayland clipboard blows up with a segmentation fault if
-    // If the fields are dropped in the wrong order. Literally any other platform does not care!
+    // If the fields are dropped in the wrong order. Other platforms are not affected by drop order.
+    // Fields of a struct are dropped in declaration order. https://doc.rust-lang.org/reference/destructors.html
     egui_context: Context,
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
-
     /////////////////// END OF DANGER ZONE//////////////////////////////////////
     config: SoftwareBackendAppConfiguration,
     software_backend: SoftwareBackend,
@@ -121,7 +121,8 @@ struct ConfiguredAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiAp
 struct WindowInitializedAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
     /////////// DANGER ZONE DO NOT CHANGE THE ORDER OF THOSE FIELDS ////////////////////
     // WAYLAND BUG: The wayland clipboard blows up with a segmentation fault if
-    // If the fields are dropped in the wrong order. Literally any other platform does not care!
+    // If the fields are dropped in the wrong order. Other platforms are not affected by drop order.
+    // Fields of a struct are dropped in declaration order. https://doc.rust-lang.org/reference/destructors.html
     egui_context: Context,
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
     window: Rc<Window>,
@@ -135,7 +136,8 @@ struct WindowInitializedAppState<EguiApp: App, EguiAppFactory: FnMut(Context) ->
 struct RunningEguiAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp> {
     /////////// DANGER ZONE DO NOT CHANGE THE ORDER OF THOSE FIELDS ////////////////////
     // WAYLAND BUG: The wayland clipboard blows up with a segmentation fault if
-    // If the fields are dropped in the wrong order. Literally any other platform does not care!
+    // If the fields are dropped in the wrong order. Other platforms are not affected by drop order.
+    // Fields of a struct are dropped in declaration order. https://doc.rust-lang.org/reference/destructors.html
     egui_context: Context,
     surface: softbuffer::Surface<OwnedDisplayHandle, Rc<Window>>,
     egui_winit: egui_winit::State,
@@ -168,7 +170,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         elwt: &ActiveEventLoop,
     ) -> Result<WindowInitializedAppState<EguiApp, EguiAppFactory>, SoftwareBackendAppError> {
         // !BUG IN WAYLAND!
-        // if resizable false during window creation you can never make the window resizable again.
+        // If resizable is false during window creation you can never make the window resizable again.
         // We always force None before we call into egui_winit and set it on the window object later.
         let resizable = self
             .config
@@ -473,7 +475,8 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                                     // Needed because otherwise fullscreen mode never works again.
                                     self.window.set_fullscreen(None);
 
-                                    // Needed because otherwise cursor grab needs to be manually set to none before it can be enabled again
+                                    // Needed because otherwise cursor grab needs to be manually set to none before it
+                                    // can be enabled again
                                     _ = self.window.set_cursor_grab(CursorGrabMode::None);
 
                                     self.window.set_visible(false)
