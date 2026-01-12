@@ -2,7 +2,6 @@
 
 use argh::FromArgs;
 use core::num::NonZeroU32;
-use core::time::Duration;
 use egui_demo_lib::ColorTest;
 use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
 use std::rc::Rc;
@@ -54,8 +53,8 @@ fn main() {
 
     let softbuffer_context = softbuffer::Context::new(event_loop.owned_display_handle()).unwrap();
 
-    let mut last_update = Instant::now();
-    let mut frame_count: u32 = 0;
+    let mut frame_times = Vec::new();
+    let mut last_frame_time = Instant::now();
 
     let mut app = WinitApp::new(
         |elwt: &ActiveEventLoop| {
@@ -166,15 +165,16 @@ fn main() {
 
                     buffer.present().unwrap();
 
-                    frame_count += 1;
                     let now = Instant::now();
-                    if now.duration_since(last_update) >= Duration::from_secs(1) {
-                        let fps =
-                            frame_count as f64 / now.duration_since(last_update).as_secs_f64();
-                        window.set_title(&format!("egui software backend - {:.2}ms", 1000.0 / fps));
-                        frame_count = 0;
-                        last_update = now;
+                    if frame_times.len() < 100 {
+                        frame_times.push(now.duration_since(last_frame_time).as_secs_f32());
+                    } else {
+                        let avg =
+                            (frame_times.iter().sum::<f32>() / frame_times.len() as f32) * 1000.0;
+                        window.set_title(&format!("Frame Time {avg:.2}ms"));
+                        frame_times.clear();
                     }
+                    last_frame_time = now;
                 }
 
                 WindowEvent::CloseRequested => {
