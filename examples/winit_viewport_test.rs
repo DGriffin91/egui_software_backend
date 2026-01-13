@@ -1,3 +1,6 @@
+// Note: Not all platforms support every feature. Ideally the winit software backend has feature parity here with
+// eframe. Test against eframe with USE_EFRAME=true env var.
+
 use eframe::Frame;
 use egui::{Context, CursorGrab, SystemTheme, Vec2, ViewportCommand, vec2};
 use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
