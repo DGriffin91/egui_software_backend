@@ -16,7 +16,7 @@ softbuffer = { version = "0.4", optional = true }
 egui-winit = { version = "0.33", default-features = false, optional = true}
 bytemuck = { version = "1.23", optional = true }
 
-# Optional dependencies for automated testing: 
+# Optional dependencies for automated testing:
 egui_kittest = { version = "0.33", optional = true }
 image = { version = "0.25", optional = true }
 
