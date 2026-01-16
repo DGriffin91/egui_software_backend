@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use std::vec::Vec;
 use winit::application::ApplicationHandler;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
+use winit::event_loop::{self, ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
 use winit::window::{CursorGrabMode, Fullscreen, Icon, Theme, Window, WindowButtons, WindowId};
 
 /// Errors that can occur when using the egui software backend with winit.
@@ -253,6 +253,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         renderer: EguiSoftwareRender,
         softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
         egui_app_factory: EguiAppFactory,
+        egui_context: Context,
     ) -> Self {
         Self::Configured(ConfiguredAppState {
             config,
@@ -262,13 +263,26 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
             },
             renderer,
             softbuffer_context,
-            egui_context: Context::default(),
+            egui_context,
             egui_app_factory,
         })
     }
 }
 
-impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler
+enum UserEvent {
+    RequestRepaint {
+        /// What to repaint.
+        viewport_id: egui::ViewportId,
+
+        /// When to repaint.
+        when: Instant,
+
+        /// What the cumulative pass number was when the repaint was _requested_.
+        cumulative_pass_nr: u64,
+    },
+}
+
+impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler<UserEvent>
     for WinitAppStateMachine<EguiApp, InitSurface>
 {
     fn resumed(&mut self, el: &ActiveEventLoop) {
@@ -288,7 +302,9 @@ impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler
                 }
             },
             Self::WindowInitialized(state) => match state.create_surface() {
-                Ok(ss) => *self = Self::Running(ss),
+                Ok(ss) => {
+                    *self = Self::Running(ss);
+                }
                 Err(e) => {
                     *self = Self::Dead(Some(e));
                     el.exit();
@@ -303,6 +319,30 @@ impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler
                 *self = Self::Dead(err);
                 el.exit();
             }
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        if event_loop.exiting() {
+            return;
+        }
+        match self {
+            Self::Running(state) => match event {
+                UserEvent::RequestRepaint {
+                    viewport_id,
+                    when,
+                    cumulative_pass_nr,
+                } => {
+                    let current_pass_nr = state.egui_context.cumulative_pass_nr_for(viewport_id);
+                    if current_pass_nr == cumulative_pass_nr
+                        || current_pass_nr == cumulative_pass_nr + 1
+                    {
+                        state.request_redraw();
+                    }
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(when));
+                }
+            },
+            _ => {}
         }
     }
 
@@ -392,6 +432,10 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
             window: self.window,
         }
     }
+    pub(crate) fn request_redraw(&self) {
+        self.window.request_redraw();
+    }
+
     pub(crate) fn handle_event(
         &mut self,
         event: Event<()>,
@@ -415,15 +459,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 
         if window_id != self.window.id() {
             return Ok(());
-        }
-
-        let response = self
-            .egui_winit
-            .on_window_event(self.window.deref(), &window_event);
-
-        if response.repaint {
-            // Redraw when egui says it's necessary (e.g., mouse move, key press):
-            self.window.request_redraw();
         }
 
         match window_event {
@@ -698,8 +733,17 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                 self.egui_app.on_exit(&self.egui_context);
                 elwt.exit();
             }
-            _ => {}
-        }
+            _ => {
+                let response = self
+                    .egui_winit
+                    .on_window_event(self.window.deref(), &window_event);
+
+                if response.repaint {
+                    // Redraw when egui says it's necessary (e.g., mouse move, key press):
+                    self.window.request_redraw();
+                }
+            }
+        };
 
         Ok(())
     }
@@ -1067,18 +1111,35 @@ pub fn run_app_with_software_backend<T: App>(
         .with_convert_tris_to_rects(settings.convert_tris_to_rects)
         .with_caching(settings.caching);
 
-    let event_loop: EventLoop<()> =
-        EventLoop::new().map_err(|e| SoftwareBackendAppError::EventLoop(Box::new(e)))?;
+    let event_loop: EventLoop<UserEvent> = EventLoop::with_user_event()
+        .build()
+        .map_err(|e| SoftwareBackendAppError::EventLoop(Box::new(e)))?;
 
     let softbuffer_context = softbuffer::Context::new(event_loop.owned_display_handle()).map_err(
         SoftwareBackendAppError::soft_buffer("softbuffer::Context::new"),
     )?;
+
+    let egui_ctx = Context::default();
+
+    let event_loop_proxy = event_loop.create_proxy();
+    egui_ctx.set_request_repaint_callback(move |info| {
+        let when = Instant::now() + info.delay;
+        let cumulative_pass_nr = info.current_cumulative_pass_nr;
+        event_loop_proxy
+            .send_event(UserEvent::RequestRepaint {
+                viewport_id: info.viewport_id,
+                when,
+                cumulative_pass_nr,
+            })
+            .ok();
+    });
 
     let mut app = WinitAppStateMachine::new(
         settings.clone(),
         egui_software_render,
         softbuffer_context,
         egui_app_factory,
+        egui_ctx,
     );
 
     if let Err(event_loop_error) = event_loop.run_app(&mut app) {
