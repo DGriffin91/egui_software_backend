@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use std::vec::Vec;
 use winit::application::ApplicationHandler;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::{self, ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
 use winit::window::{CursorGrabMode, Fullscreen, Icon, Theme, Window, WindowButtons, WindowId};
 
 /// Errors that can occur when using the egui software backend with winit.
@@ -326,8 +326,8 @@ impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler<Us
         if event_loop.exiting() {
             return;
         }
-        match self {
-            Self::Running(state) => match event {
+        if let Self::Running(state) = self {
+            match event {
                 UserEvent::RequestRepaint {
                     viewport_id,
                     when,
@@ -341,8 +341,7 @@ impl<EguiApp: App, InitSurface: FnMut(Context) -> EguiApp> ApplicationHandler<Us
                     }
                     event_loop.set_control_flow(ControlFlow::WaitUntil(when));
                 }
-            },
-            _ => {}
+            }
         }
     }
 
