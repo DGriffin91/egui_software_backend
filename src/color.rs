@@ -62,6 +62,12 @@ pub fn egui_blend_u8(src: [u8; 4], mut dst: [u8; 4]) -> [u8; 4] {
     ]
 }
 
+pub fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
+    for (pixel, src) in dst.iter_mut().zip(src) {
+        *pixel = egui_blend_u8(*src, *pixel);
+    }
+}
+
 #[inline(always)]
 pub fn swizzle_rgba_bgra(a: [u8; 4]) -> [u8; 4] {
     [a[2], a[1], a[0], a[3]]
