@@ -1,4 +1,4 @@
-use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
+use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderMode};
 use egui::{
     Context, CursorGrab, IconData, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
     WindowLevel, X11WindowType,
@@ -704,26 +704,33 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                         .map_err(SoftwareBackendAppError::soft_buffer(
                             "softbuffer::Surface::buffer_mut",
                         ))?;
-                buffer.fill(0); // CLEAR
 
                 let buffer_ref = &mut BufferMutRef::new(
                     bytemuck::cast_slice_mut(&mut buffer),
-                    width.get() as usize,
-                    height.get() as usize,
+                    width.get(),
+                    height.get(),
                 );
-
-                self.renderer.render(
+                let redraw_everything_this_frame =
+                    self.renderer.cached_size() != (buffer_ref.width, buffer_ref.height);
+                let dirty_rect = self.renderer.render(
                     buffer_ref,
+                    redraw_everything_this_frame,
                     &clipped_primitives,
                     &full_output.textures_delta,
                     full_output.pixels_per_point,
                 );
 
-                buffer
-                    .present()
-                    .map_err(SoftwareBackendAppError::soft_buffer(
-                        "softbuffer::Buffer::present",
-                    ))?;
+                if !dirty_rect.is_empty() {
+                    let dirty_rect = softbuffer::Rect {
+                        x: dirty_rect.min_x,
+                        y: dirty_rect.min_y,
+                        width: NonZeroU32::new(dirty_rect.width()).expect("non zero rect"),
+                        height: NonZeroU32::new(dirty_rect.height()).expect("non zero rect"),
+                    };
+                    buffer.present_with_damage(&[dirty_rect]).map_err(
+                        SoftwareBackendAppError::soft_buffer("softbuffer::Buffer::present"),
+                    )?;
+                }
 
                 self.software_backend.last_frame_time = start.map(|a| a.elapsed());
             }
@@ -828,8 +835,8 @@ pub struct SoftwareBackendAppConfiguration {
     /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
     /// Rendering without caching is much slower and primarily intended for testing.
     ///
-    /// Default is true!
-    pub caching: bool,
+    /// Default is TiledCacheing!
+    pub mode: SoftwareRenderMode,
 }
 
 impl SoftwareBackendAppConfiguration {
@@ -874,7 +881,7 @@ impl SoftwareBackendAppConfiguration {
 
             allow_raster_opt: true,
             convert_tris_to_rects: true,
-            caching: true,
+            mode: SoftwareRenderMode::TiledCacheing,
         }
     }
 
@@ -1086,9 +1093,9 @@ impl SoftwareBackendAppConfiguration {
     /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
     /// Rendering without caching is much slower and primarily intended for testing.
     ///
-    /// Default is true!
-    pub const fn caching(mut self, caching: bool) -> Self {
-        self.caching = caching;
+    /// Default is TiledCacheing!
+    pub const fn caching(mut self, caching: SoftwareRenderMode) -> Self {
+        self.mode = caching;
         self
     }
 }
@@ -1108,7 +1115,7 @@ pub fn run_app_with_software_backend<T: App>(
     let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(settings.allow_raster_opt)
         .with_convert_tris_to_rects(settings.convert_tris_to_rects)
-        .with_caching(settings.caching);
+        .with_mode(settings.mode);
 
     let event_loop: EventLoop<UserEvent> = EventLoop::with_user_event()
         .build()

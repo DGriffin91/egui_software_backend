@@ -1,7 +1,7 @@
 mod tests {
 
     use egui::{Vec2, vec2};
-    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
+    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender, SoftwareRenderMode};
     use image::{ImageBuffer, Rgba};
 
     use egui_kittest::HarnessBuilder;
@@ -43,14 +43,19 @@ mod tests {
                 .save(format!("tests/tmp/gpu_px_per_point{px_per_point}.png"))
                 .unwrap();
 
-            for use_cache in [false, true] {
+            for mode in [
+                SoftwareRenderMode::Direct,
+                SoftwareRenderMode::MeshCacheing,
+                SoftwareRenderMode::TiledCacheing,
+            ] {
                 for allow_raster_opt in [false, true] {
                     for convert_tris_to_rects in [false, true] {
                         // --- Render on CPU
                         let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Rgba)
                             .with_allow_raster_opt(allow_raster_opt)
                             .with_convert_tris_to_rects(convert_tris_to_rects)
-                            .with_caching(use_cache);
+                            .with_mode(mode)
+                            .with_canvas();
 
                         let mut harness = HarnessBuilder::default()
                             .with_size(RESOLUTION)
@@ -61,7 +66,7 @@ mod tests {
                         let cpu_render_image = harness.render().unwrap();
 
                         let name = format!(
-                            "px_per_pt {px_per_point}, use_cache {use_cache}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
+                            "px_per_pt {px_per_point}, mode {mode:?}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
                         );
 
                         if let Some((pixels_failed, diff_image)) = dify(

@@ -2,7 +2,7 @@ use constify::constify;
 use egui::{Vec2, vec2};
 
 use crate::{
-    BufferMutRef,
+    BufferMutRef, as_usize,
     color::{egui_blend_u8, unorm_mult4x4},
     egui_texture::EguiTexture,
     render::DrawInfo,
@@ -34,10 +34,10 @@ pub fn draw_rect(
         return;
     }
 
-    let min_x = min_x as usize;
-    let min_y = min_y as usize;
-    let max_x = max_x as usize;
-    let max_y = max_y as usize;
+    let min_x = min_x as u32;
+    let min_y = min_y as u32;
+    let max_x = max_x as u32;
+    let max_y = max_y as u32;
 
     if !vert_uvs_vary && !vert_col_vary {
         for y in min_y..max_y {
@@ -104,15 +104,15 @@ pub fn draw_rect(
 
         if use_nearest_sampling && no_texture_wrap_or_overflow {
             // Can just directly blend the texture over the dst buffer, no need to sample with uv
-            let min_uv = [ts_min.x as i32, ts_min.y as i32];
+            let min_uv = [ts_min.x as u32, ts_min.y as u32];
             let mut tex_row = min_uv[1];
             for y in min_y..max_y {
-                let tex_row_start = tex_row as usize * texture.width;
-                let tex_start = tex_row_start + min_uv[0] as usize;
+                let tex_row_start = tex_row as u32 * texture.width as u32;
+                let tex_start = tex_row_start + min_uv[0];
                 let tex_end = tex_start + max_x - min_x;
 
                 let dst = &mut buffer.get_mut_span(min_x, max_x, y);
-                let src = &texture.data[tex_start..tex_end];
+                let src = &texture.data[as_usize(tex_start)..as_usize(tex_end)];
 
                 if simd {
                     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
@@ -154,7 +154,7 @@ pub fn draw_rect(
                 let buf_y = y * buffer.width;
                 for x in min_x..max_x {
                     let tex_color = texture.sample_bilinear(uv);
-                    let pixel = &mut buffer.data[x + buf_y];
+                    let pixel = &mut buffer.data[as_usize(x) + as_usize(buf_y)];
                     let src = unorm_mult4x4(draw.const_vert_color_u8x4, tex_color);
                     *pixel = egui_blend_u8(src, *pixel);
                     uv.x += uv_step.x;

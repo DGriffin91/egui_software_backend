@@ -3,12 +3,12 @@ use egui::TexturesDelta;
 use egui_kittest::TestRenderer;
 use image::ImageBuffer;
 
-use crate::{BufferMutRef, EguiSoftwareRender};
+use crate::{BufferMutRef, EguiSoftwareRenderCanvas};
 
-impl TestRenderer for EguiSoftwareRender {
+impl TestRenderer for EguiSoftwareRenderCanvas {
     fn handle_delta(&mut self, delta: &TexturesDelta) {
-        self.set_textures(delta);
-        self.free_textures(delta);
+        self.renderer.inner.set_textures(delta);
+        self.renderer.inner.free_textures(delta);
     }
 
     fn render(
@@ -18,12 +18,12 @@ impl TestRenderer for EguiSoftwareRender {
     ) -> Result<image::RgbaImage, String> {
         let paint_jobs = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
 
-        let width = (ctx.content_rect().width() * output.pixels_per_point) as usize;
-        let height = (ctx.content_rect().height() * output.pixels_per_point) as usize;
+        let width = (ctx.content_rect().width() * output.pixels_per_point) as u32;
+        let height = (ctx.content_rect().height() * output.pixels_per_point) as u32;
 
-        let mut buffer = vec![[0u8; 4]; width * height];
+        let mut buffer = vec![[0u8; 4]; crate::as_usize(width * height)];
 
-        let mut buffer_ref = BufferMutRef::new(&mut buffer, width as usize, height as usize);
+        let mut buffer_ref = BufferMutRef::new(&mut buffer, width, height);
 
         self.render(
             &mut buffer_ref,

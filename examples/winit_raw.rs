@@ -47,7 +47,11 @@ fn main() {
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(!args.no_opt)
         .with_convert_tris_to_rects(!args.no_rect)
-        .with_caching(!args.direct);
+        .with_mode(if args.direct {
+            egui_software_backend::SoftwareRenderMode::Direct
+        } else {
+            egui_software_backend::SoftwareRenderMode::TiledCacheing
+        });
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -148,22 +152,30 @@ fn main() {
                         .tessellate(full_output.shapes, full_output.pixels_per_point);
 
                     let mut buffer = app.surface.buffer_mut().unwrap();
-                    buffer.fill(0); // CLEAR
 
                     let buffer_ref = &mut BufferMutRef::new(
                         bytemuck::cast_slice_mut(&mut buffer),
-                        width as usize,
-                        height as usize,
+                        width,
+                        height,
                     );
-
-                    egui_software_render.render(
+                    let redraw_everything_this_frame =
+                        egui_software_render.cached_size() != (buffer_ref.width, buffer_ref.height);
+                    let dirty_rect = egui_software_render.render(
                         buffer_ref,
+                        redraw_everything_this_frame,
                         &clipped_primitives,
                         &full_output.textures_delta,
                         full_output.pixels_per_point,
                     );
-
-                    buffer.present().unwrap();
+                    if !dirty_rect.is_empty() {
+                        let dirty_rect = softbuffer::Rect {
+                            x: dirty_rect.min_x,
+                            y: dirty_rect.min_y,
+                            width: NonZeroU32::new(dirty_rect.width()).expect("non zero rect"),
+                            height: NonZeroU32::new(dirty_rect.height()).expect("non zero rect"),
+                        };
+                        buffer.present_with_damage(&[dirty_rect]).unwrap();
+                    }
 
                     let now = Instant::now();
                     if frame_times.len() < 100 {
