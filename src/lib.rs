@@ -13,13 +13,15 @@ use egui::{Color32, Mesh, Pos2, Vec2, ahash::HashMap, vec2};
 #[cfg(feature = "raster_stats")]
 use crate::stats::RasterStats;
 use crate::{
-    color::{egui_blend_u8, swizzle_rgba_bgra},
+    color::swizzle_rgba_bgra,
     egui_texture::EguiTexture,
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
 };
 
 pub(crate) mod color;
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod color_avx2;
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod color_neon;
 #[cfg(target_arch = "x86_64")]
@@ -47,6 +49,15 @@ pub use winit::{
 pub(crate) fn sse41() -> bool {
     #[cfg(all(target_arch = "x86_64", feature = "std"))]
     return std::arch::is_x86_feature_detected!("sse4.1");
+    #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
+    return false;
+}
+
+#[inline(always)]
+#[allow(dead_code)]
+pub(crate) fn avx2() -> bool {
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    return std::arch::is_x86_feature_detected!("avx2");
     #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
     return false;
 }
@@ -332,28 +343,33 @@ impl EguiSoftwareRender {
         y_end: usize,
         canvas_row_offset: usize,
     ) {
-        if sse41() || neon() {
-            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-            {
+        macro_rules! blit_tile_impl {
+            ($color:ident) => {
                 for y in y_start..y_end {
                     let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
                     let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    #[cfg(target_arch = "x86_64")]
-                    unsafe {
-                        crate::color_sse41::egui_blend_u8_slice(src_row, dst_row)
-                    }
-                    #[cfg(target_arch = "aarch64")]
-                    crate::color_neon::egui_blend_u8_slice(src_row, dst_row);
+                    crate::$color::egui_blend_u8_slice(src_row, dst_row);
                 }
-            }
+            };
+        }
+
+        if avx2() {
+            #[cfg(target_arch = "x86_64")]
+            unsafe {
+                blit_tile_impl!(color_avx2)
+            };
+        } else if sse41() {
+            #[cfg(target_arch = "x86_64")]
+            unsafe {
+                blit_tile_impl!(color_sse41)
+            };
+        } else if neon() {
+            #[cfg(target_arch = "aarch64")]
+            unsafe {
+                blit_tile_impl!(color_neon)
+            };
         } else {
-            for y in y_start..y_end {
-                let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
-                let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                    *dst = egui_blend_u8(src, *dst);
-                }
-            }
+            blit_tile_impl!(color)
         }
     }
 
@@ -930,30 +946,34 @@ fn update_canvas_tile(
             (canvas_start..canvas_end, prim_start..prim_end)
         };
 
-        if sse41() || neon() {
-            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-            {
+        macro_rules! update_canvas_tile_impl {
+            ($color:ident) => {
                 for y in min_y..max_y {
                     let (canvas_slice, prim_slice) = get_ranges(y);
                     let src_row = &prim_buf.data[prim_slice];
                     let dst_row = &mut canvas.data[canvas_slice];
-                    #[cfg(target_arch = "x86_64")]
-                    unsafe {
-                        crate::color_sse41::egui_blend_u8_slice(src_row, dst_row)
-                    }
-                    #[cfg(target_arch = "aarch64")]
-                    crate::color_neon::egui_blend_u8_slice(src_row, dst_row)
+                    crate::$color::egui_blend_u8_slice(src_row, dst_row);
                 }
-            }
+            };
+        }
+
+        if avx2() {
+            #[cfg(target_arch = "x86_64")]
+            unsafe {
+                update_canvas_tile_impl!(color_avx2)
+            };
+        } else if sse41() {
+            #[cfg(target_arch = "x86_64")]
+            unsafe {
+                update_canvas_tile_impl!(color_sse41)
+            };
+        } else if neon() {
+            #[cfg(target_arch = "aarch64")]
+            unsafe {
+                update_canvas_tile_impl!(color_neon)
+            };
         } else {
-            for y in min_y..max_y {
-                let (canvas_slice, prim_slice) = get_ranges(y);
-                let src_row = &prim_buf.data[prim_slice];
-                let dst_row = &mut canvas.data[canvas_slice];
-                for (pixel, src) in dst_row.iter_mut().zip(src_row) {
-                    *pixel = egui_blend_u8(*src, *pixel);
-                }
-            }
+            update_canvas_tile_impl!(color)
         }
     }
 }
