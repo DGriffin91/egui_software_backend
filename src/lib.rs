@@ -9,23 +9,21 @@ use core::ops::{Deref, DerefMut, Range};
 use alloc::{borrow::Cow, vec, vec::Vec};
 
 use egui::{Color32, Mesh, Pos2, Vec2, ahash::HashMap, vec2};
+#[cfg(feature = "rayon")]
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 #[cfg(feature = "raster_stats")]
-use crate::stats::RasterStats;
+use crate::stats::RenderStats;
 use crate::{
-    color::swizzle_rgba_bgra,
+    color::{SelectedImpl, swizzle_rgba_bgra},
+    dirty_rect::{ComputeTiledDirtyRects, DirtyRect},
     egui_texture::EguiTexture,
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
 };
 
 pub(crate) mod color;
-#[cfg(target_arch = "x86_64")]
-pub(crate) mod color_avx2;
-#[cfg(target_arch = "aarch64")]
-pub(crate) mod color_neon;
-#[cfg(target_arch = "x86_64")]
-pub(crate) mod color_sse41;
+pub(crate) mod dirty_rect;
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
 pub(crate) mod math;
@@ -44,34 +42,6 @@ pub use winit::{
     App, SoftwareBackend, SoftwareBackendAppConfiguration, run_app_with_software_backend,
 };
 
-#[inline(always)]
-#[allow(dead_code)]
-pub(crate) fn sse41() -> bool {
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    return std::arch::is_x86_feature_detected!("sse4.1");
-    #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
-    return false;
-}
-
-#[inline(always)]
-#[allow(dead_code)]
-pub(crate) fn avx2() -> bool {
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
-    return std::arch::is_x86_feature_detected!("avx2");
-    #[cfg(any(not(target_arch = "x86_64"), not(feature = "std")))]
-    return false;
-}
-
-#[inline(always)]
-#[allow(dead_code)]
-pub(crate) fn neon() -> bool {
-    #[cfg(all(target_arch = "aarch64", feature = "std"))]
-    // This should always be true on aarch64
-    return std::arch::is_aarch64_feature_detected!("neon");
-    #[cfg(any(not(target_arch = "aarch64"), not(feature = "std")))]
-    return false;
-}
-
 const TILE_SIZE: u32 = 64;
 
 #[derive(Copy, Clone, Default)]
@@ -81,16 +51,46 @@ pub enum ColorFieldOrder {
     Bgra,
 }
 
+/// Caching mode for the renderer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SoftwareRenderMode {
-    /// No cache, always redraw the whole frame (slow, for testing mostly)
-    Direct,
-    /// Cache primitives meshes, redraw primitives in the smallest changed bbox
-    MeshCacheing,
+pub enum SoftwareRenderCaching {
     /// Cache primitives renders, update the dirty tiles
     ///
-    /// This is the default mode and often the fastest mode, but it cost memory
-    TiledCacheing,
+    /// This is the default mode and often the fastest mode, but it cost the most memory
+    ///
+    /// # Algorithm
+    /// * Prepare Mesh from primitives
+    /// * Hash prepared meshes for changes
+    /// * Render non already cached meshes to cache
+    /// * Mark dirty tiles
+    /// * Reclaim unused cached meshes renders
+    /// * Render dirty tiles by blending cache renders
+    BlendTiled,
+    /// Cache primitives meshes, redraw primitives intersecting a set of changed bboxes
+    ///
+    /// Primitives are rendered clipped per intersection with a non overlapping set
+    /// of changed tiled bounding boxes.
+    ///
+    /// # Algorithm
+    /// * Prepare Mesh from primitives
+    /// * Hash prepared meshes for changes
+    /// * Accumulate dirty primitives bounding boxes
+    /// * Reclaim unused cached meshes
+    /// * Generate non overlaping set of tiled bounding boxes
+    /// * Render primitives intersecting tiled bounding boxes.
+    MeshTiled,
+    /// Cache primitives meshes, redraw primitives in the smallest changed bbox
+    ///
+    /// Primitives are rendered clipped to the union of changed bounding boxes.
+    ///
+    /// # Algorithm
+    /// * Prepare Mesh from primitives
+    /// * Hash prepared meshes for changes
+    /// * Reclaim unused cached meshes
+    /// * Render primitives intersecting dirty rect
+    Mesh,
+    /// No cache, always redraw the whole frame (slow, for testing mostly)
+    Direct,
 }
 
 struct EguiSoftwareRenderInner {
@@ -99,20 +99,23 @@ struct EguiSoftwareRenderInner {
     /// Tiles grid size (cols, rows)
     tiles_dim: [u32; 2],
     dirty_tiles: Vec<u8>,
+    dirty_rects: ComputeTiledDirtyRects,
     output_field_order: ColorFieldOrder,
     convert_tris_to_rects: bool,
     allow_raster_opt: bool,
-    mode: SoftwareRenderMode,
+    mode: SoftwareRenderCaching,
     #[cfg(feature = "raster_stats")]
-    pub stats: RasterStats,
+    pub stats: RenderStats,
 }
 
+/// egui software renderer
 pub struct EguiSoftwareRender {
     tiledcached_primitives: HashMap<u32, TiledCachedPrimitive>,
     dirtycached_primitives: HashMap<u32, MeshCachedPrimitive>,
     inner: EguiSoftwareRenderInner,
 }
 
+/// egui software renderer to canvas
 pub struct EguiSoftwareRenderCanvas {
     canvas: Vec<[u8; 4]>,
     renderer: EguiSoftwareRender,
@@ -132,51 +135,18 @@ impl DerefMut for EguiSoftwareRenderCanvas {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DirtyRect {
-    pub min_x: u32,
-    pub min_y: u32,
-    pub max_x: u32,
-    pub max_y: u32,
-}
+fn blit_rect(
+    simd_impl: impl SelectedImpl,
+    canvas: &BufferMutRef,
+    buffer: &mut BufferMutRef,
+    rect: DirtyRect,
+    canvas_row_offset: u32,
+) {
+    for y in rect.min_y..rect.max_y {
+        let src_row = canvas.get_span(rect.min_x, rect.max_x, y + canvas_row_offset);
+        let dst_row = &mut buffer.get_mut_span(rect.min_x, rect.max_x, y);
 
-impl DirtyRect {
-    pub const fn new_empty() -> Self {
-        Self {
-            min_x: 0,
-            min_y: 0,
-            max_x: 0,
-            max_y: 0,
-        }
-    }
-
-    #[inline]
-    pub const fn width(self) -> u32 {
-        self.max_x - self.min_x
-    }
-    #[inline]
-    pub const fn height(self) -> u32 {
-        self.max_y - self.min_y
-    }
-
-    #[inline]
-    pub const fn intersects(self, other: Self) -> bool {
-        self.min_x < other.max_x && self.max_x > other.min_x
-    }
-
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.min_x == self.max_x || self.min_y == self.max_y
-    }
-
-    #[inline]
-    pub fn union(&self, other: DirtyRect) -> Self {
-        Self {
-            min_x: self.min_x.min(other.min_x),
-            min_y: self.min_y.min(other.min_y),
-            max_x: self.max_x.max(other.max_x),
-            max_y: self.max_y.max(other.max_y),
-        }
+        simd_impl.egui_blend_u8_slice(src_row, dst_row)
     }
 }
 
@@ -184,11 +154,11 @@ impl EguiSoftwareRenderCanvas {
     pub fn render(
         &mut self,
         buffer_ref: &mut BufferMutRef,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) {
-        if self.renderer.inner.mode == SoftwareRenderMode::Direct {
+        if self.renderer.inner.mode == SoftwareRenderCaching::Direct {
             self.renderer.render(
                 buffer_ref,
                 true,
@@ -214,12 +184,15 @@ impl EguiSoftwareRenderCanvas {
                 textures_delta,
                 pixels_per_point,
             );
-            if self.renderer.inner.mode == SoftwareRenderMode::TiledCacheing {
-                self.renderer
+            if self.renderer.inner.mode == SoftwareRenderCaching::BlendTiled {
+                dispatch_simd_impl!(|simd_impl| self
+                    .renderer
                     .inner
-                    .blit_to_buffer_from_tiledcanvas(&canvas, buffer_ref);
+                    .blit_to_buffer_from_tiledcanvas(simd_impl, &canvas, buffer_ref));
             } else {
-                EguiSoftwareRenderInner::blit_rect(&canvas, buffer_ref, dirty_rect, 0);
+                dispatch_simd_impl!(|simd_impl| blit_rect(
+                    simd_impl, &canvas, buffer_ref, dirty_rect, 0
+                ));
             }
         }
     }
@@ -238,10 +211,11 @@ impl EguiSoftwareRender {
                 textures: Default::default(),
                 tiles_dim: Default::default(),
                 dirty_tiles: Default::default(),
+                dirty_rects: Default::default(),
                 output_field_order,
                 convert_tris_to_rects: true,
                 allow_raster_opt: true,
-                mode: SoftwareRenderMode::TiledCacheing,
+                mode: SoftwareRenderCaching::BlendTiled,
                 #[cfg(feature = "raster_stats")]
                 stats: Default::default(),
             },
@@ -265,7 +239,7 @@ impl EguiSoftwareRender {
     /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
     /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
     /// Rendering without caching is much slower and primarily intended for testing.
-    pub fn with_mode(mut self, set: SoftwareRenderMode) -> Self {
+    pub fn with_mode(mut self, set: SoftwareRenderCaching) -> Self {
         self.inner.mode = set;
         self
     }
@@ -277,6 +251,35 @@ impl EguiSoftwareRender {
         }
     }
 
+    #[cfg(feature = "raster_stats")]
+    pub fn stats(&self) -> &RenderStats {
+        &self.inner.stats
+    }
+
+    /// Get the caching mode of the renderer
+    pub fn caching(&self) -> SoftwareRenderCaching {
+        self.inner.mode
+    }
+
+    /// Change the caching mode of the renderer
+    pub fn set_caching(&mut self, caching: SoftwareRenderCaching) {
+        if self.inner.mode == caching {
+            return;
+        }
+        self.inner.mode = caching;
+        self.clear_cache();
+    }
+
+    /// Clear cache and reclaim memory
+    ///
+    /// This will cause the next render to redraw everything
+    pub fn clear_cache(&mut self) {
+        self.tiledcached_primitives = Default::default();
+        self.dirtycached_primitives = Default::default();
+        self.inner.dirty_tiles = Default::default();
+        self.inner.dirty_rects = Default::default();
+    }
+
     /// The latest renderer `buffer_ref` width and height, if a cacheing mode is selected
     pub const fn cached_size(&self) -> (u32, u32) {
         self.inner.cached_size
@@ -285,7 +288,7 @@ impl EguiSoftwareRender {
     /// Renders the given paint jobs to buffer_ref. Alternatively, when using caching
     /// EguiSoftwareRender::render_to_canvas() and subsequently EguiSoftwareRender::blit_canvas_to_buffer() can be run
     /// separately so that the primary rendering in render_to_canvas() can happen without a lock on the frame buffer.
-    ///  
+    ///
     ///
     /// # Arguments
     /// * `buffer_ref` - Buffer to render into.
@@ -306,12 +309,14 @@ impl EguiSoftwareRender {
         &mut self,
         buffer_ref: &mut BufferMutRef,
         redraw_everything_this_frame: bool,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> DirtyRect {
+        #[cfg(feature = "raster_stats")]
+        self.inner.stats.clear();
         match self.inner.mode {
-            SoftwareRenderMode::Direct => {
+            SoftwareRenderCaching::Direct => {
                 self.inner
                     .render_direct(buffer_ref, paint_jobs, textures_delta, pixels_per_point);
                 DirtyRect {
@@ -321,14 +326,15 @@ impl EguiSoftwareRender {
                     max_y: buffer_ref.height,
                 }
             }
-            SoftwareRenderMode::MeshCacheing => self.render_meshcacheing(
-                buffer_ref,
-                redraw_everything_this_frame,
-                paint_jobs,
-                textures_delta,
-                pixels_per_point,
-            ),
-            SoftwareRenderMode::TiledCacheing => self.render_tiledcacheing(
+            SoftwareRenderCaching::MeshTiled | SoftwareRenderCaching::Mesh => self
+                .render_meshmaybetiled(
+                    buffer_ref,
+                    redraw_everything_this_frame,
+                    paint_jobs,
+                    textures_delta,
+                    pixels_per_point,
+                ),
+            SoftwareRenderCaching::BlendTiled => self.render_blendtiled(
                 buffer_ref,
                 redraw_everything_this_frame,
                 paint_jobs,
@@ -338,17 +344,17 @@ impl EguiSoftwareRender {
         }
     }
 
-    fn render_tiledcacheing(
+    fn render_blendtiled(
         &mut self,
         canvas: &mut BufferMutRef,
         redraw_everything_this_frame: bool,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> DirtyRect {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
 
-        let dirty_rect = self.inner.prepare_render_cacheing(
+        let dirty_rect = self.inner.prepare_render_cache(
             &mut self.tiledcached_primitives,
             canvas,
             redraw_everything_this_frame,
@@ -365,15 +371,15 @@ impl EguiSoftwareRender {
         }
         dirty_rect
     }
-    fn render_meshcacheing(
+    fn render_meshmaybetiled(
         &mut self,
         canvas: &mut BufferMutRef,
         redraw_everything_this_frame: bool,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> DirtyRect {
-        let dirty_rect = self.inner.prepare_render_cacheing(
+        let dirty_rect = self.inner.prepare_render_cache(
             &mut self.dirtycached_primitives,
             canvas,
             redraw_everything_this_frame,
@@ -385,7 +391,7 @@ impl EguiSoftwareRender {
                 px_mesh,
                 clip_rect,
             },
-            |_, _| {},
+            EguiSoftwareRenderInner::update_dirty_rects,
         );
         if !dirty_rect.is_empty() {
             self.inner
@@ -397,12 +403,12 @@ impl EguiSoftwareRender {
 
 impl EguiSoftwareRenderInner {
     #[allow(clippy::too_many_arguments)]
-    fn prepare_render_cacheing<F, U, P>(
+    fn prepare_render_cache<F, U, P>(
         &mut self,
         cached_primitives: &mut HashMap<u32, P>,
         canvas: &mut BufferMutRef,
         redraw_everything_this_frame: bool,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
         f_render_prims_to_cache: F,
@@ -414,9 +420,6 @@ impl EguiSoftwareRenderInner {
         P: DerefMut<Target = CacheReuse> + Sync + Send,
     {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
-
-        #[cfg(feature = "raster_stats")]
-        self.stats.clear();
 
         assert!(canvas.width > 0);
         assert!(canvas.height > 0);
@@ -468,12 +471,12 @@ impl EguiSoftwareRenderInner {
         self.free_textures(textures_delta);
         dirty_rect
     }
-
     /// Draw canvas alpha over given buffer.
     /// Only run after EguiSoftwareRender::render() with TiledCacheing to run both.
     /// Only writes tile regions that contain pixels that are not fully transparent.
     fn blit_to_buffer_from_tiledcanvas(
-        &mut self,
+        &self,
+        simd_impl: impl SelectedImpl,
         canvas: &BufferMutRef,
         buffer: &mut BufferMutRef,
     ) {
@@ -509,14 +512,15 @@ impl EguiSoftwareRenderInner {
             // blit rows of tiles in parallel
 
             let width = buffer.width;
-            let px_per_row_of_tiles = width * TILE_SIZE;
+            let px_per_row_of_tiles = as_usize(width) * as_usize(TILE_SIZE);
 
             buffer
                 .data
                 .par_chunks_mut(px_per_row_of_tiles)
                 .enumerate()
                 .for_each(|(tile_row, tile_height_row)| {
-                    let height = tile_height_row.len() / width; // Might be less than TILE_SIZE
+                    let tile_row = tile_row as u32;
+                    let height = tile_height_row.len() as u32 / width; // Might be less than TILE_SIZE
                     let buffer_tile_row = &mut BufferMutRef::new(tile_height_row, width, height);
 
                     for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
@@ -524,6 +528,7 @@ impl EguiSoftwareRenderInner {
                             continue;
                         }
 
+                        let tile_idx = tile_idx as u32;
                         let tile_y = tile_idx / tiles_x;
                         if tile_y != tile_row {
                             continue;
@@ -538,7 +543,8 @@ impl EguiSoftwareRenderInner {
 
                         let canvas_row_offset = tile_row * TILE_SIZE;
 
-                        Self::blit_rect(
+                        blit_rect(
+                            simd_impl,
                             canvas,
                             buffer_tile_row,
                             DirtyRect {
@@ -568,7 +574,8 @@ impl EguiSoftwareRenderInner {
                 let x_end = (x_start + TILE_SIZE).min(width);
                 let y_end = (y_start + TILE_SIZE).min(height);
 
-                Self::blit_rect(
+                blit_rect(
+                    simd_impl,
                     canvas,
                     buffer,
                     DirtyRect {
@@ -578,49 +585,13 @@ impl EguiSoftwareRenderInner {
                         max_y: y_end,
                     },
                     0,
-                );
+                )
             }
         }
 
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.blit_canvas_to_buffer = start.elapsed().as_secs_f32();
-        }
-    }
-
-    fn blit_rect(
-        canvas: &BufferMutRef,
-        buffer: &mut BufferMutRef,
-        rect: DirtyRect,
-        canvas_row_offset: u32,
-    ) {
-        macro_rules! blit_rect_impl {
-            ($color:ident) => {
-                for y in rect.min_y..rect.max_y {
-                    let src_row = canvas.get_span(rect.min_x, rect.max_x, y + canvas_row_offset);
-                    let dst_row = &mut buffer.get_mut_span(rect.min_x, rect.max_x, y);
-                    crate::$color::egui_blend_u8_slice(src_row, dst_row);
-                }
-            };
-        }
-
-        if avx2() {
-            #[cfg(target_arch = "x86_64")]
-            unsafe {
-                blit_rect_impl!(color_avx2)
-            };
-        } else if sse41() {
-            #[cfg(target_arch = "x86_64")]
-            unsafe {
-                blit_rect_impl!(color_sse41)
-            };
-        } else if neon() {
-            #[cfg(target_arch = "aarch64")]
-            unsafe {
-                blit_rect_impl!(color_neon)
-            };
-        } else {
-            blit_rect_impl!(color)
+            self.stats.blit_canvas_to_buffer.mark(start);
         }
     }
 
@@ -628,52 +599,23 @@ impl EguiSoftwareRenderInner {
     fn render_direct(
         &mut self,
         direct_draw_buffer: &mut BufferMutRef,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) {
-        #[cfg(feature = "raster_stats")]
-        self.stats.clear();
-
         self.set_textures(textures_delta);
 
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
 
-        for egui::ClippedPrimitive {
-            clip_rect,
-            primitive,
-        } in paint_jobs.iter()
-        {
-            let input_mesh = match primitive {
-                egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
-                egui::epaint::Primitive::Callback(_) => {
-                    #[cfg(feature = "log")]
-                    log::error!("egui::epaint::Primitive::Callback(PaintCallback) not supported");
-                    continue;
-                }
-            };
-
-            if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
-                continue;
-            }
-
-            let clip_rect = egui::Rect {
-                min: clip_rect.min * pixels_per_point,
-                // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
-                max: clip_rect.max * pixels_per_point + egui::Vec2::splat(1.5),
-            };
-
-            let mut mesh_min = egui::Vec2::splat(f32::MAX);
-            let mut mesh_max = egui::Vec2::splat(-f32::MAX);
-
-            let px_mesh = Self::prepare_px_mesh(
-                self.output_field_order,
-                pixels_per_point,
-                input_mesh,
-                &mut mesh_min,
-                &mut mesh_max,
-            );
+        for paint_job in paint_jobs {
+            // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
+            let splat = 1.5f32;
+            let (clip_rect, mesh_min, mesh_max, px_mesh) =
+                match self.prim_prepare_px_mesh(splat, pixels_per_point, paint_job) {
+                    Some(x) => x,
+                    None => continue,
+                };
 
             let mesh_size = mesh_max - mesh_min;
             if mesh_size.x > 8192.0 || mesh_size.y > 8192.0 {
@@ -708,53 +650,12 @@ impl EguiSoftwareRenderInner {
                 );
             }
         }
-
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.render_direct = start.elapsed().as_secs_f32();
+            self.stats.render_direct.mark(start);
         }
+
         self.free_textures(textures_delta);
-    }
-
-    fn prepare_px_mesh(
-        output_field_order: ColorFieldOrder,
-        pixels_per_point: f32,
-        mesh: &egui::Mesh,
-        mesh_min: &mut Vec2,
-        mesh_max: &mut Vec2,
-    ) -> Mesh {
-        let mut px_mesh = mesh.clone();
-
-        for v in px_mesh.vertices.iter_mut() {
-            v.pos *= pixels_per_point;
-
-            match output_field_order {
-                ColorFieldOrder::Rgba => (), // egui uses rgba
-                ColorFieldOrder::Bgra => {
-                    let d = swizzle_rgba_bgra(v.color.to_array());
-                    v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
-                }
-            }
-
-            *mesh_min = mesh_min.min(v.pos.to_vec2());
-            *mesh_max = mesh_max.max(v.pos.to_vec2());
-        }
-
-        // Make all the tris face forward (ccw) to simplify rasterization.
-        // TODO perf: could store the area so it's not recomputed later.
-        for i in (0..px_mesh.indices.len()).step_by(3) {
-            let i0 = px_mesh.indices[i] as usize;
-            let i1 = px_mesh.indices[i + 1] as usize;
-            let i2 = px_mesh.indices[i + 2] as usize;
-            let v0 = px_mesh.vertices[i0];
-            let v1 = px_mesh.vertices[i1];
-            let v2 = px_mesh.vertices[i2];
-            let area = egui_orient2df(&v0.pos, &v1.pos, &v2.pos);
-            if area < 0.0 {
-                px_mesh.indices.swap(i + 1, i + 2);
-            }
-        }
-        px_mesh
     }
 
     fn render_prim(
@@ -797,7 +698,7 @@ impl EguiSoftwareRenderInner {
                 self.allow_raster_opt,
                 self.convert_tris_to_rects,
                 #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-                &mut self.stats,
+                &self.stats,
             );
         } else {
             draw_egui_mesh::<8>(
@@ -809,56 +710,31 @@ impl EguiSoftwareRenderInner {
                 self.allow_raster_opt,
                 self.convert_tris_to_rects,
                 #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-                &mut self.stats,
+                &self.stats,
             );
         }
         prim.update_occupied_tiles(self.tiles_dim[0], self.tiles_dim[1]);
         prim
     }
 
-    fn update<F, P>(
+    fn prim_prepare_update<F, P>(
         &self,
         cached_primitives: &HashMap<u32, P>,
         pixels_per_point: f32,
         prim_idx: u32,
-        egui::ClippedPrimitive {
-            clip_rect,
-            primitive,
-        }: &egui::ClippedPrimitive,
+        paint_job: egui::ClippedPrimitive,
         f: F,
     ) -> CacheUpdate<P>
     where
         F: Fn(&Self, CacheReuse, Vec2, Vec2, egui::Rect, Mesh) -> P + Sync + Send,
         P: DerefMut<Target = CacheReuse> + Sync + Send,
     {
-        let input_mesh = match primitive {
-            egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
-            egui::epaint::Primitive::Callback(_) => {
-                #[cfg(feature = "log")]
-                log::error!("egui::epaint::Primitive::Callback(PaintCallback) not supported");
-                return CacheUpdate::None;
-            }
-        };
-
-        if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
-            return CacheUpdate::None;
-        }
-
-        let clip_rect = egui::Rect {
-            min: clip_rect.min * pixels_per_point,
-            max: clip_rect.max * pixels_per_point + egui::Vec2::splat(0.5),
-        };
-
-        let mut mesh_min = egui::Vec2::splat(f32::MAX);
-        let mut mesh_max = egui::Vec2::splat(-f32::MAX);
-
-        let px_mesh = Self::prepare_px_mesh(
-            self.output_field_order,
-            pixels_per_point,
-            input_mesh,
-            &mut mesh_min,
-            &mut mesh_max,
-        );
+        let splat = 0.5f32;
+        let (clip_rect, mesh_min, mesh_max, px_mesh) =
+            match self.prim_prepare_px_mesh(splat, pixels_per_point, paint_job) {
+                Some(x) => x,
+                None => return CacheUpdate::None,
+            };
 
         let cropped_min = mesh_min.max(clip_rect.min.to_vec2());
         let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
@@ -933,10 +809,72 @@ impl EguiSoftwareRenderInner {
         }
     }
 
+    fn prim_prepare_px_mesh(
+        &self,
+        splat: f32,
+        pixels_per_point: f32,
+        egui::ClippedPrimitive {
+            clip_rect,
+            primitive,
+        }: egui::ClippedPrimitive,
+    ) -> Option<(egui::Rect, Vec2, Vec2, Mesh)> {
+        let input_mesh = match primitive {
+            egui::epaint::Primitive::Mesh(input_mesh) => input_mesh,
+            egui::epaint::Primitive::Callback(_) => {
+                #[cfg(feature = "log")]
+                log::error!("egui::epaint::Primitive::Callback(PaintCallback) not supported");
+                return None;
+            }
+        };
+        if input_mesh.vertices.is_empty() || input_mesh.indices.is_empty() {
+            return None;
+        }
+        let clip_rect = egui::Rect {
+            min: clip_rect.min * pixels_per_point,
+            max: clip_rect.max * pixels_per_point + egui::Vec2::splat(splat),
+        };
+        let mut mesh_min = egui::Vec2::splat(f32::MAX);
+        let mut mesh_max = egui::Vec2::splat(-f32::MAX);
+
+        let mut px_mesh = input_mesh;
+
+        for v in px_mesh.vertices.iter_mut() {
+            v.pos *= pixels_per_point;
+
+            match self.output_field_order {
+                ColorFieldOrder::Rgba => (), // egui uses rgba
+                ColorFieldOrder::Bgra => {
+                    let d = swizzle_rgba_bgra(v.color.to_array());
+                    v.color = Color32::from_rgba_premultiplied(d[0], d[1], d[2], d[3]);
+                }
+            }
+
+            mesh_min = mesh_min.min(v.pos.to_vec2());
+            mesh_max = mesh_max.max(v.pos.to_vec2());
+        }
+
+        // Make all the tris face forward (ccw) to simplify rasterization.
+        // TODO perf: could store the area so it's not recomputed later.
+        for i in (0..px_mesh.indices.len()).step_by(3) {
+            let i0 = px_mesh.indices[i] as usize;
+            let i1 = px_mesh.indices[i + 1] as usize;
+            let i2 = px_mesh.indices[i + 2] as usize;
+            let v0 = px_mesh.vertices[i0];
+            let v1 = px_mesh.vertices[i1];
+            let v2 = px_mesh.vertices[i2];
+            let area = egui_orient2df(&v0.pos, &v1.pos, &v2.pos);
+            if area < 0.0 {
+                px_mesh.indices.swap(i + 1, i + 2);
+            }
+        }
+
+        Some((clip_rect, mesh_min, mesh_max, px_mesh))
+    }
+
     fn render_prims_to_cache<F, P>(
         &self,
         cached_primitives: &mut HashMap<u32, P>,
-        paint_jobs: &[egui::ClippedPrimitive],
+        paint_jobs: Vec<egui::ClippedPrimitive>,
         pixels_per_point: f32,
         f: F,
     ) where
@@ -948,16 +886,14 @@ impl EguiSoftwareRenderInner {
 
         // Render paint jobs in parallel
         #[cfg(feature = "rayon")]
-        use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-        #[cfg(feature = "rayon")]
-        let iter = paint_jobs.par_iter().enumerate();
+        let iter = paint_jobs.into_par_iter().enumerate();
 
         #[cfg(not(feature = "rayon"))]
-        let iter = paint_jobs.iter().enumerate();
+        let iter = paint_jobs.into_iter().enumerate();
 
         let updates: Vec<CacheUpdate<P>> = iter
             .map(|(prim_idx, paint_job)| {
-                self.update(
+                self.prim_prepare_update(
                     cached_primitives,
                     pixels_per_point,
                     prim_idx as u32,
@@ -981,12 +917,12 @@ impl EguiSoftwareRenderInner {
 
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.render_prims_to_cache = start.elapsed().as_secs_f32();
+            self.stats.render_prims_to_cache.mark(start);
         }
     }
 
     fn render_from_meshcache(
-        &mut self,
+        &self,
         cached_primitives: &HashMap<u32, MeshCachedPrimitive>,
         direct_draw_buffer: &mut BufferMutRef,
         dirty_rect: DirtyRect,
@@ -997,43 +933,56 @@ impl EguiSoftwareRenderInner {
         let mut sorted_prim_cache = cached_primitives.values().collect::<Vec<_>>();
         sorted_prim_cache.sort_unstable_by_key(|prim| prim.inner.z_order);
 
-        for prim in &sorted_prim_cache {
-            if !prim.rect.intersects(dirty_rect) {
-                continue;
-            }
-
+        let mut render_from_meshcache_prim = |prim: &MeshCachedPrimitive, dirty_rect: DirtyRect| {
+            let clip_rect = prim.clip_rect.intersect(dirty_rect.to_egui_rect());
             let (width, height) = (prim.rect.width(), prim.rect.height());
             let render_in_low_precision = width > 4096 || height > 4096;
             if render_in_low_precision {
                 draw_egui_mesh::<2>(
                     &self.textures,
                     direct_draw_buffer,
-                    &prim.clip_rect,
+                    &clip_rect,
                     &prim.px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt,
                     self.convert_tris_to_rects,
                     #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-                    &mut self.stats,
+                    &self.stats,
                 );
             } else {
                 draw_egui_mesh::<8>(
                     &self.textures,
                     direct_draw_buffer,
-                    &prim.clip_rect,
+                    &clip_rect,
                     &prim.px_mesh,
                     Vec2::ZERO,
                     self.allow_raster_opt,
                     self.convert_tris_to_rects,
                     #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-                    &mut self.stats,
+                    &self.stats,
                 );
             }
+        };
+
+        match self.mode {
+            SoftwareRenderCaching::MeshTiled => {
+                for &prim in &sorted_prim_cache {
+                    for dirty_rect in self.dirty_rects.intersections(prim.rect) {
+                        render_from_meshcache_prim(prim, dirty_rect);
+                    }
+                }
+            }
+            SoftwareRenderCaching::Mesh => {
+                for &prim in &sorted_prim_cache {
+                    render_from_meshcache_prim(prim, dirty_rect);
+                }
+            }
+            _ => unreachable!(),
         }
 
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.update_canvas_from_cached = start.elapsed().as_secs_f32();
+            self.stats.render_from_meshcache.mark(start);
         }
     }
 
@@ -1056,22 +1005,23 @@ impl EguiSoftwareRenderInner {
             };
             // composite rows of tiles in parallel
 
-            let full_height = self.canvas.height;
+            let full_height = canvas.height;
 
             let width = canvas.width;
-            let px_per_row_of_tiles = width * TILE_SIZE;
+            let px_per_row_of_tiles = as_usize(width) * as_usize(TILE_SIZE);
 
             canvas
                 .data
                 .par_chunks_mut(px_per_row_of_tiles)
                 .enumerate()
                 .for_each(|(tile_row, tile_height_row)| {
-                    let height = tile_height_row.len() / width; // Might be less than TILE_SIZE
+                    let height = tile_height_row.len() as u32 / width; // Might be less than TILE_SIZE
                     let canvas_tile_row = &mut BufferMutRef::new(tile_height_row, width, height);
 
-                    let dirty_tile_row_start = tile_row * self.tiles_dim[0];
-                    let dirty_tile_row_end = dirty_tile_row_start + self.tiles_dim[0];
+                    let dirty_tile_row_start = tile_row * as_usize(self.tiles_dim[0]);
+                    let dirty_tile_row_end = dirty_tile_row_start + as_usize(self.tiles_dim[0]);
 
+                    let tile_row = tile_row as u32;
                     self.dirty_tiles
                         .iter()
                         .enumerate()
@@ -1080,6 +1030,7 @@ impl EguiSoftwareRenderInner {
                         .filter(|(_, mask)| **mask & Self::DIRTY_TILE_MASK != 0)
                         .map(|(idx, _)| idx)
                         .for_each(|tile_idx| {
+                            let tile_idx = tile_idx as u32;
                             let tile_y = tile_idx / self.tiles_dim[0];
 
                             if tile_y != tile_row {
@@ -1117,9 +1068,10 @@ impl EguiSoftwareRenderInner {
                 update_canvas_tile(&sorted_prim_cache, canvas, tile_x, tile_y, full_height, 0);
             }
         }
+
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.update_canvas_from_cached = start.elapsed().as_secs_f32();
+            self.stats.render_from_tiledcache.mark(start);
         }
     }
 
@@ -1128,6 +1080,7 @@ impl EguiSoftwareRenderInner {
     fn update_dirty_tiles(&mut self, cached_primitives: &HashMap<u32, TiledCachedPrimitive>) {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
+
         self.dirty_tiles
             .resize(as_usize(self.tiles_dim[0] * self.tiles_dim[1]), 0);
         self.dirty_tiles.fill(0);
@@ -1144,7 +1097,25 @@ impl EguiSoftwareRenderInner {
 
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.update_dirty_tiles = start.elapsed().as_secs_f32();
+            self.stats.update_dirty_tiles.mark(start);
+        }
+    }
+
+    fn update_dirty_rects(&mut self, cached_primitives: &HashMap<u32, MeshCachedPrimitive>) {
+        #[cfg(feature = "raster_stats")]
+        let start = std::time::Instant::now();
+        if self.mode == SoftwareRenderCaching::MeshTiled {
+            self.dirty_rects.set_bboxes(
+                cached_primitives
+                    .values()
+                    .filter(|prim| !prim.inner.seen_this_frame || prim.inner.rendered_this_frame)
+                    .map(|prim| prim.rect),
+            );
+        }
+
+        #[cfg(feature = "raster_stats")]
+        {
+            self.stats.update_dirty_rects.mark(start);
         }
     }
 
@@ -1154,6 +1125,7 @@ impl EguiSoftwareRenderInner {
     {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
+
         let mut dirty_rect = DirtyRect::new_empty();
         for prim in cached_primitives.values() {
             let prim = prim.deref();
@@ -1168,7 +1140,7 @@ impl EguiSoftwareRenderInner {
 
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.update_dirty_tiles = start.elapsed().as_secs_f32();
+            self.stats.update_dirty_rect.mark(start);
         }
         dirty_rect
     }
@@ -1176,6 +1148,7 @@ impl EguiSoftwareRenderInner {
     fn set_textures(&mut self, textures_delta: &egui::TexturesDelta) {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
+
         for (id, delta) in &textures_delta.set {
             if delta.options.magnification != delta.options.minification {
                 // Would need helper lanes to impl?
@@ -1213,9 +1186,10 @@ impl EguiSoftwareRenderInner {
                 self.textures.insert(*id, new_texture);
             }
         }
+
         #[cfg(feature = "raster_stats")]
         {
-            self.stats.set_textures = start.elapsed().as_secs_f32();
+            self.stats.set_textures.mark(start);
         }
     }
 
@@ -1290,35 +1264,14 @@ fn update_canvas_tile(
             )
         };
 
-        macro_rules! update_canvas_tile_impl {
-            ($color:ident) => {
-                for y in min_y..max_y {
-                    let (canvas_slice, prim_slice) = get_ranges(y);
-                    let src_row = &prim_buf.data[prim_slice];
-                    let dst_row = &mut canvas.data[canvas_slice];
-                    crate::$color::egui_blend_u8_slice(src_row, dst_row);
-                }
-            };
-        }
-
-        if avx2() {
-            #[cfg(target_arch = "x86_64")]
-            unsafe {
-                update_canvas_tile_impl!(color_avx2)
-            };
-        } else if sse41() {
-            #[cfg(target_arch = "x86_64")]
-            unsafe {
-                update_canvas_tile_impl!(color_sse41)
-            };
-        } else if neon() {
-            #[cfg(target_arch = "aarch64")]
-            unsafe {
-                update_canvas_tile_impl!(color_neon)
-            };
-        } else {
-            update_canvas_tile_impl!(color)
-        }
+        dispatch_simd_impl!(|simd_impl| {
+            for y in min_y..max_y {
+                let (canvas_slice, prim_slice) = get_ranges(y);
+                let src_row = &prim_buf.data[prim_slice];
+                let dst_row = &mut canvas.data[canvas_slice];
+                simd_impl.egui_blend_u8_slice(src_row, dst_row);
+            }
+        });
     }
 }
 
@@ -1509,5 +1462,42 @@ impl<'a> BufferRef<'a> {
     #[inline(always)]
     pub fn get_ref(&self, x: u32, y: u32) -> &[u8; 4] {
         &self.data[as_usize(x) + as_usize(y) * as_usize(self.width)]
+    }
+}
+
+#[allow(dead_code)]
+fn draw_rect_border_f32(
+    buffer_ref: &mut BufferMutRef,
+    rect: egui::Rect,
+    border_size: f32,
+    color: [u8; 4],
+) {
+    // Convert float to integer pixel coordinates
+    let x0 = rect.min.x.floor().max(0.0) as u32;
+    let y0 = rect.min.y.floor().max(0.0) as u32;
+    let x1 = (rect.max.x.ceil() as u32).min(buffer_ref.width);
+    let y1 = (rect.max.y.ceil() as u32).min(buffer_ref.height);
+    let border = border_size.ceil().max(0.0) as u32;
+
+    // Helper closure: set pixel if inside buffer
+    let mut set_pixel = |px: u32, py: u32| {
+        let idx = as_usize(py * buffer_ref.width + px);
+        buffer_ref.data[idx] = color;
+    };
+
+    // Top & bottom borders
+    for dy in 0..border {
+        for px in x0..x1 {
+            set_pixel(px, y0 + dy); // top
+            set_pixel(px, y1.saturating_sub(1) - dy); // bottom
+        }
+    }
+
+    // Left & right borders
+    for py in border..(y1.saturating_sub(y0).saturating_sub(border)) {
+        for dx in 0..border {
+            set_pixel(x0 + dx, y0 + py); // left
+            set_pixel(x1.saturating_sub(1) - dx, y0 + py); // right
+        }
     }
 }

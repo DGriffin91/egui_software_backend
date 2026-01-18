@@ -48,9 +48,9 @@ fn main() {
         .with_allow_raster_opt(!args.no_opt)
         .with_convert_tris_to_rects(!args.no_rect)
         .with_mode(if args.direct {
-            egui_software_backend::SoftwareRenderMode::Direct
+            egui_software_backend::SoftwareRenderCaching::Direct
         } else {
-            egui_software_backend::SoftwareRenderMode::TiledCacheing
+            egui_software_backend::SoftwareRenderCaching::BlendTiled
         });
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
@@ -143,7 +143,7 @@ fn main() {
 
                         #[cfg(feature = "raster_stats")]
                         egui::Window::new("Stats").show(ctx, |ui| {
-                            egui_software_render.stats.render(ui);
+                            egui_software_render.stats().render(ui);
                         });
                     });
 
@@ -163,7 +163,7 @@ fn main() {
                     let dirty_rect = egui_software_render.render(
                         buffer_ref,
                         redraw_everything_this_frame,
-                        &clipped_primitives,
+                        clipped_primitives,
                         &full_output.textures_delta,
                         full_output.pixels_per_point,
                     );

@@ -1,7 +1,7 @@
 mod tests {
 
     use egui::{Vec2, vec2};
-    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender, SoftwareRenderMode};
+    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching};
     use image::{ImageBuffer, Rgba};
 
     use egui_kittest::HarnessBuilder;
@@ -44,9 +44,10 @@ mod tests {
                 .unwrap();
 
             for mode in [
-                SoftwareRenderMode::Direct,
-                SoftwareRenderMode::MeshCacheing,
-                SoftwareRenderMode::TiledCacheing,
+                SoftwareRenderCaching::Direct,
+                SoftwareRenderCaching::Mesh,
+                SoftwareRenderCaching::MeshTiled,
+                SoftwareRenderCaching::BlendTiled,
             ] {
                 for allow_raster_opt in [false, true] {
                     for convert_tris_to_rects in [false, true] {

@@ -39,6 +39,9 @@ dify = "0.7"
 argh = "0.1"
 
 
+[profile.release]
+debug = true
+
 # Enable optimization in debug mode
 [profile.dev]
 opt-level = 3

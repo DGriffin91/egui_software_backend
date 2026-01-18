@@ -2,9 +2,60 @@
 
 use core::{arch::x86_64::*, ptr::read_unaligned};
 
+use crate::SelectedImpl;
+
+#[derive(Clone, Copy)]
+pub(crate) struct Sse41Impl(());
+
+impl Sse41Impl {
+    /// `std::arch::is_x86_feature_detected!("sse4.1")` MUST be true
+    pub(crate) unsafe fn new() -> Self {
+        Self(())
+    }
+}
+
+impl Sse41Impl {}
+
+impl SelectedImpl for Sse41Impl {
+    #[inline]
+    fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
+        unsafe { egui_blend_u8_slice(src, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice_one_src_tinted_fn(
+        self,
+        src: [u8; 4],
+        tint_fn: impl FnMut() -> [u8; 4],
+        dst: &mut [[u8; 4]],
+    ) {
+        unsafe { egui_blend_u8_slice_one_src_tinted_fn(src, tint_fn, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice_tinted(self, src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8; 4]]) {
+        unsafe { egui_blend_u8_slice_tinted(src, tint, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice_one_src(self, src: [u8; 4], dst: &mut [[u8; 4]]) {
+        unsafe { egui_blend_u8_slice_one_src(src, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8(self, src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+        unsafe { egui_blend_u8(src, dst) }
+    }
+
+    #[inline]
+    fn unorm_mult4x4(self, a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
+        unsafe { unorm_mult4x4(a, b) }
+    }
+}
+
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let alpha = src[3];
     if alpha == 255 {
         return src;
@@ -34,7 +85,7 @@ pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
 // https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice_one_src(src: [u8; 4], dst: &mut [[u8; 4]]) {
+fn egui_blend_u8_slice_one_src(src: [u8; 4], dst: &mut [[u8; 4]]) {
     let n = dst.len();
     if n == 0 {
         return;
@@ -99,7 +150,7 @@ pub fn egui_blend_u8_slice_one_src(src: [u8; 4], dst: &mut [[u8; 4]]) {
 /// dst[i] = blend(src[i], dst[i]) // As unorm
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
+fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
     assert_eq!(src.len(), dst.len());
 
     let n = dst.len();
@@ -136,7 +187,7 @@ pub fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
 /// dst[i] = blend(src[i] * vert, dst[i]) // As unorm
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice_tinted(src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8; 4]]) {
+fn egui_blend_u8_slice_tinted(src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8; 4]]) {
     assert_eq!(src.len(), dst.len());
     let n = dst.len();
     if n == 0 {
@@ -185,7 +236,7 @@ pub fn egui_blend_u8_slice_tinted(src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8
 /// dst[i] = blend(src * tint_fn(), dst[i]) // As unorm
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice_one_src_tinted_fn(
+fn egui_blend_u8_slice_one_src_tinted_fn(
     src: [u8; 4],
     mut tint_fn: impl FnMut() -> [u8; 4],
     dst: &mut [[u8; 4]],

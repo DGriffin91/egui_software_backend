@@ -1,4 +1,6 @@
-use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderMode};
+#[cfg(feature = "raster_stats")]
+use crate::stats::RenderStats;
+use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching};
 use egui::{
     Context, CursorGrab, IconData, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
     WindowLevel, X11WindowType,
@@ -113,7 +115,6 @@ struct ConfiguredAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiAp
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
     /////////////////// END OF DANGER ZONE//////////////////////////////////////
     config: SoftwareBackendAppConfiguration,
-    software_backend: SoftwareBackend,
     renderer: EguiSoftwareRender,
     egui_app_factory: EguiAppFactory,
 }
@@ -128,7 +129,6 @@ struct WindowInitializedAppState<EguiApp: App, EguiAppFactory: FnMut(Context) ->
     window: Rc<Window>,
     /////////////////// END OF DANGER ZONE//////////////////////////////////////
     config: SoftwareBackendAppConfiguration,
-    software_backend: SoftwareBackend,
     renderer: EguiSoftwareRender,
     egui_app_factory: EguiAppFactory,
 }
@@ -144,7 +144,7 @@ struct RunningEguiAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiA
     window: Rc<Window>,
     /////////////////// END OF DANGER ZONE//////////////////////////////////////
     config: SoftwareBackendAppConfiguration,
-    software_backend: SoftwareBackend,
+    last_frame_time: Option<Duration>,
     renderer: EguiSoftwareRender,
     egui_app_factory: EguiAppFactory,
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
@@ -192,7 +192,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 
         Ok(WindowInitializedAppState {
             config: self.config,
-            software_backend: self.software_backend,
             renderer: self.renderer,
             egui_context: self.egui_context,
             egui_app_factory: self.egui_app_factory,
@@ -239,7 +238,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
             fullscreen,
             visible,
             input_events: Vec::new(),
-            software_backend: self.software_backend,
+            last_frame_time: None,
         })
     }
 }
@@ -257,10 +256,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
     ) -> Self {
         Self::Configured(ConfiguredAppState {
             config,
-            software_backend: SoftwareBackend {
-                capture_frame_time: false,
-                last_frame_time: None,
-            },
             renderer,
             softbuffer_context,
             egui_context,
@@ -423,7 +418,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
     pub(crate) fn suspend(self) -> WindowInitializedAppState<EguiApp, EguiAppFactory> {
         WindowInitializedAppState {
             config: self.config,
-            software_backend: self.software_backend,
             renderer: self.renderer,
             egui_context: self.egui_context,
             egui_app_factory: self.egui_app_factory,
@@ -440,11 +434,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
         event: Event<()>,
         elwt: &ActiveEventLoop,
     ) -> Result<(), SoftwareBackendAppError> {
-        let start = if self.software_backend.capture_frame_time {
-            Some(Instant::now())
-        } else {
-            None
-        };
+        let start = Instant::now();
 
         elwt.set_control_flow(ControlFlow::Wait);
 
@@ -478,7 +468,13 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                 self.input_events.clear();
 
                 let full_output = self.egui_context.run(raw_input, |ctx| {
-                    self.egui_app.update(ctx, &mut self.software_backend);
+                    self.egui_app.update(
+                        ctx,
+                        &mut SoftwareBackend {
+                            last_frame_time: self.last_frame_time,
+                            renderer: &mut self.renderer,
+                        },
+                    );
 
                     self.egui_context.viewport(|r| {
                         let mut die = false;
@@ -715,7 +711,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                 let dirty_rect = self.renderer.render(
                     buffer_ref,
                     redraw_everything_this_frame,
-                    &clipped_primitives,
+                    clipped_primitives,
                     &full_output.textures_delta,
                     full_output.pixels_per_point,
                 );
@@ -730,9 +726,11 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                     buffer.present_with_damage(&[dirty_rect]).map_err(
                         SoftwareBackendAppError::soft_buffer("softbuffer::Buffer::present"),
                     )?;
+                    //buffer.present().unwrap();
                 }
 
-                self.software_backend.last_frame_time = start.map(|a| a.elapsed());
+                self.last_frame_time = Some(start.elapsed());
+                self.window.request_redraw();
             }
 
             WindowEvent::CloseRequested => {
@@ -767,8 +765,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 ///
 /// impl App for MyApp {
 ///     fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
-///         backend.set_capture_frame_time(true);
-///
 ///
 ///        egui::CentralPanel::default().show(ctx, |ui| {
 ///        ui.label(format!(
@@ -780,30 +776,38 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 /// }
 ///
 /// ```
-pub struct SoftwareBackend {
-    capture_frame_time: bool,
+pub struct SoftwareBackend<'a> {
     last_frame_time: Option<Duration>,
+    renderer: &'a mut EguiSoftwareRender,
 }
 
-impl SoftwareBackend {
-    /// Returns true if the frame time for the next frame is captured.
-    pub fn is_capture_frame_time(&self) -> bool {
-        self.capture_frame_time
-    }
-
-    /// Enables or disables capturing the frame time.
-    /// Note that once this is called, the value persists until this function is called again.
-    /// Calling this with true will not affect the current frame, so once this is called with true,
-    /// you will need to wait for 2 more frames until you get a value.
-    pub fn set_capture_frame_time(&mut self, capture: bool) {
-        self.capture_frame_time = capture;
-    }
-
+impl<'a> SoftwareBackend<'a> {
     /// Returns the rendering duration of the last frame if this information is available.
-    /// Returns none otherwise. Note that this information is only captured is `set_capture_frame_time`
-    /// is called with true.
+    /// Returns none otherwise.
     pub fn last_frame_time(&self) -> Option<Duration> {
         self.last_frame_time
+    }
+
+    #[cfg(feature = "raster_stats")]
+    pub fn stats(&self) -> &RenderStats {
+        self.renderer.stats()
+    }
+
+    /// Get the caching mode of the renderer
+    pub fn caching(&self) -> SoftwareRenderCaching {
+        self.renderer.caching()
+    }
+
+    /// Change the caching mode of the renderer
+    pub fn set_caching(&mut self, caching: SoftwareRenderCaching) {
+        self.renderer.set_caching(caching);
+    }
+
+    /// Clear cache and reclaim memory
+    ///
+    /// This will cause the next frame to redraw everything
+    pub fn clear_cache(&mut self) {
+        self.renderer.clear_cache();
     }
 }
 
@@ -818,9 +822,8 @@ pub struct SoftwareBackendAppConfiguration {
     /// The underlying egui viewport builder that is used to create the window with winit.
     pub viewport_builder: ViewportBuilder,
 
-    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
-    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
-    /// Rendering without caching is much slower and primarily intended for testing.
+    /// If false: Rasterize everything with triangles, always calculate vertex colors, uvs, use bilinear
+    ///   everywhere, etc... Things *should* look the same with this set to `true` while rendering faster.
     ///
     /// Default is true!
     pub allow_raster_opt: bool,
@@ -831,12 +834,10 @@ pub struct SoftwareBackendAppConfiguration {
     /// Default is true!
     pub convert_tris_to_rects: bool,
 
-    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
-    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
-    /// Rendering without caching is much slower and primarily intended for testing.
+    /// Define the caching mode of the renderer
     ///
-    /// Default is TiledCacheing!
-    pub mode: SoftwareRenderMode,
+    /// Default is [`SoftwareRenderCaching::BlendTiled`]!
+    pub caching: SoftwareRenderCaching,
 }
 
 impl SoftwareBackendAppConfiguration {
@@ -881,7 +882,7 @@ impl SoftwareBackendAppConfiguration {
 
             allow_raster_opt: true,
             convert_tris_to_rects: true,
-            mode: SoftwareRenderMode::TiledCacheing,
+            caching: SoftwareRenderCaching::BlendTiled,
         }
     }
 
@@ -1088,14 +1089,11 @@ impl SoftwareBackendAppConfiguration {
         self.convert_tris_to_rects = convert_tris_to_rects;
         self
     }
-
-    /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
-    /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
-    /// Rendering without caching is much slower and primarily intended for testing.
+    /// Define the caching mode of the renderer
     ///
-    /// Default is TiledCacheing!
-    pub const fn caching(mut self, caching: SoftwareRenderMode) -> Self {
-        self.mode = caching;
+    /// Default is [`SoftwareRenderCaching::BlendTiled`]!
+    pub const fn caching(mut self, caching: SoftwareRenderCaching) -> Self {
+        self.caching = caching;
         self
     }
 }
@@ -1115,7 +1113,7 @@ pub fn run_app_with_software_backend<T: App>(
     let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(settings.allow_raster_opt)
         .with_convert_tris_to_rects(settings.convert_tris_to_rects)
-        .with_mode(settings.mode);
+        .with_mode(settings.caching);
 
     let event_loop: EventLoop<UserEvent> = EventLoop::with_user_event()
         .build()

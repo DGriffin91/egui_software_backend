@@ -27,7 +27,7 @@ impl TestRenderer for EguiSoftwareRenderCanvas {
 
         self.render(
             &mut buffer_ref,
-            &paint_jobs,
+            paint_jobs,
             &output.textures_delta,
             output.pixels_per_point,
         );
