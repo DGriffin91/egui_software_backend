@@ -30,7 +30,7 @@ impl Default for SelectedInstr {
         }
 
         #[cfg(all(target_arch = "aarch64", feature = "std"))]
-        if std::arch::is_x86_feature_detected!("neon") {
+        if std::arch::is_aarch64_feature_detected!("neon") {
             return SelectedInstr::Neon;
         }
 

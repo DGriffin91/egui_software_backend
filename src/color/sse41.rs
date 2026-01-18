@@ -14,8 +14,6 @@ impl Sse41Impl {
     }
 }
 
-impl Sse41Impl {}
-
 impl SelectedImpl for Sse41Impl {
     #[inline]
     fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
