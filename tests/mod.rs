@@ -17,7 +17,7 @@ mod tests {
         fn app() -> impl FnMut(&egui::Context) {
             let mut egui_demo = egui_demo_lib::DemoWindows::default();
             move |ctx: &egui::Context| {
-                egui_demo.ui(&ctx);
+                egui_demo.ui(ctx);
 
                 // egui::CentralPanel::default().show(ctx, |ui| {
                 //     #[allow(const_item_mutation)]

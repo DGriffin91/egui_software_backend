@@ -34,7 +34,7 @@ impl Default for SelectedInstr {
             return SelectedInstr::Neon;
         }
 
-        return SelectedInstr::Generic;
+        SelectedInstr::Generic
     }
 }
 

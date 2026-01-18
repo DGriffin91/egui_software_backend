@@ -42,7 +42,7 @@ impl DirtyRect {
     }
 
     #[inline]
-    pub const fn to_egui_rect(&self) -> egui::Rect {
+    pub const fn to_egui_rect(self) -> egui::Rect {
         egui::Rect {
             min: egui::Pos2 {
                 x: self.min_x as f32,
@@ -115,7 +115,7 @@ impl ComputeTiledDirtyRects {
             if intervals.is_empty() {
                 return;
             }
-            intervals.sort_by(|a, b| a.0.cmp(&b.0));
+            intervals.sort_unstable_by(|a, b| a.0.cmp(&b.0));
             let mut it = intervals.iter().copied();
             if let Some(mut last) = it.next() {
                 for (start, end) in it {
@@ -137,7 +137,7 @@ impl ComputeTiledDirtyRects {
         self.ys.clear();
         self.ys
             .extend(self.bboxes.iter().flat_map(|b| [b.min_y, b.max_y]));
-        self.ys.sort_by(|a, b| a.cmp(b));
+        self.ys.sort_unstable();
         self.ys.dedup();
 
         // Step 2: iterate over horizontal strips

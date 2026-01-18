@@ -35,6 +35,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
     simd_impl: impl SelectedImpl,
     textures: &HashMap<egui::TextureId, EguiTexture>,

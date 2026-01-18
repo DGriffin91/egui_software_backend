@@ -33,8 +33,8 @@ impl TestRenderer for EguiSoftwareRenderCanvas {
         );
 
         Ok(ImageBuffer::<image::Rgba<u8>, Vec<_>>::from_raw(
-            width as u32,
-            height as u32,
+            width,
+            height,
             buffer.iter().flatten().cloned().collect::<Vec<_>>(),
         )
         .unwrap())

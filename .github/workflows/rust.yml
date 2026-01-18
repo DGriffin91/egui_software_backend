@@ -40,21 +40,22 @@ jobs:
       - name: Format check
         run: cargo fmt --all -- --check
 
-      - name: Build
-        run: cargo build --verbose
+      - run: cargo test --all
+      - run: cargo test --no-default-features
+      - run: cargo test --all-features
+      - run: cargo test --features rayon
+      - run: cargo test --features raster_stats
+      - run: cargo test --features test_render
+      - run: cargo test --features rayon,raster_stats
 
-      - name: Test
-        run: cargo test --verbose
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "**/tests/tmp"
 
       - name: Clippy
-        run: cargo clippy --locked --all-features --all-targets
+        run: cargo clippy --locked --release -- -D warnings
 
-
-# cargo test --all
-# cargo test --no-default-features
-# cargo test --all-features
-# cargo test --features rayon
-# cargo test --features raster_stats
-# cargo test --features test_render
-# cargo test --features rayon,raster_stats
-# cargo deny check
+      # - run: cargo deny check
