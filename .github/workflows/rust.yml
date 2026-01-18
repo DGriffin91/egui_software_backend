@@ -33,6 +33,10 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
+
+      - name: Set up cargo cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Format check
         run: cargo fmt --all -- --check
 

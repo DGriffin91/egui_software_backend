@@ -28,20 +28,26 @@ mod tests {
         }
 
         let _ = std::fs::create_dir("tests/tmp/");
+        let _ = std::fs::create_dir("tests/gpu/");
 
         // egui's failed_px_count_thresold default is 0
         for (px_per_point, failed_px_count_thresold) in [(1.0, 8), (1.5, 15)] {
             // --- Render on GPU
-            let mut harness = HarnessBuilder::default()
-                .with_size(RESOLUTION)
-                .with_pixels_per_point(px_per_point)
-                .renderer(egui_kittest::LazyRenderer::default())
-                .build(app());
-            harness.run();
-            let gpu_render_image = harness.render().unwrap();
-            gpu_render_image
-                .save(format!("tests/tmp/gpu_px_per_point{px_per_point}.png"))
-                .unwrap();
+            let gpu_path = format!("tests/gpu/gpu_px_per_point{px_per_point}.png");
+            let gpu_render_image = match image::open(&gpu_path) {
+                Ok(gpu_prerendered_image) => gpu_prerendered_image.into_rgba8(),
+                Err(_) => {
+                    let mut harness = HarnessBuilder::default()
+                        .with_size(RESOLUTION)
+                        .with_pixels_per_point(px_per_point)
+                        .renderer(egui_kittest::LazyRenderer::default())
+                        .build(app());
+                    harness.run();
+                    let gpu_render_image = harness.render().unwrap();
+                    gpu_render_image.save(&gpu_path).unwrap();
+                    gpu_render_image
+                }
+            };
 
             for mode in [
                 SoftwareRenderCaching::Direct,
