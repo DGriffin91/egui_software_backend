@@ -53,6 +53,7 @@ skip = [
 skip-tree = [
   { name = "hashbrown" }, # wgpu's naga depends on 0.16, accesskit depends on 0.15
   { name = "image" }, # dify dev-dependencies pulls image default-features
+  { name = "winit" }, # winit, too much duplicates vs egui-winit
   { name = "rfd" }, # example dependency
   { name = "windows" }, # the ecosystem is currently transitioning from 0.58 to 0.61
 ]
