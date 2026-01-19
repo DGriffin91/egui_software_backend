@@ -730,7 +730,6 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                 }
 
                 self.last_frame_time = Some(start.elapsed());
-                self.window.request_redraw();
             }
 
             WindowEvent::CloseRequested => {
