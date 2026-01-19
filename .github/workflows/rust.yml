@@ -48,11 +48,11 @@ jobs:
       - run: cargo test --features test_render
       - run: cargo test --features rayon,raster_stats
 
-      - name: Upload artifacts
+      - name: Upload test-results artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
+          name: ${{ matrix.os }} rust-${{ matrix.toolchain }} test-results
           path: "**/tests/tmp"
 
       - name: Clippy
