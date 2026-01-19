@@ -32,7 +32,7 @@ egui-winit = { version = "0.33", default-features = false }
 epaint_default_fonts = "0.33"
 
 softbuffer = { version = "0.4" }
-image = { version = "0.25", features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 winit = { version = "0.30" }
 bytemuck = { version = "1.23" }
 dify = "0.7"
