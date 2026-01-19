@@ -74,6 +74,8 @@ pub struct RenderStats {
     pub render_from_tiledcache: DurationStat,
     pub render_direct: DurationStat,
     pub blit_canvas_to_buffer: DurationStat,
+    #[cfg(feature = "winit")]
+    pub winit_present: DurationStat,
 }
 
 #[cfg(not(feature = "rayon"))]
@@ -183,18 +185,20 @@ impl RenderStats {
                 egui::Grid::new("stats_grid").striped(true).show(ui, |ui| {
                     let mut stat = |label: &str, val: &DurationStat| {
                         ui.label(label);
-                        ui.label(format!("{:.2}ms", val.elapsed_secs() * 1000.0));
+                        ui.label(format!("{:.3}ms", val.elapsed_secs() * 1000.0));
                         ui.end_row();
                     };
                     stat("set_textures", &self.set_textures);
                     stat("render_prims_to_cache", &self.render_prims_to_cache);
-                    stat("update_dirty_rect", &self.update_dirty_tiles);
+                    stat("update_dirty_rect", &self.update_dirty_rect);
                     stat("update_dirty_tiles", &self.update_dirty_tiles);
-                    stat("update_dirty_rects", &self.update_dirty_tiles);
+                    stat("update_dirty_rects", &self.update_dirty_rects);
                     stat("render_from_tiledcache", &self.render_from_tiledcache);
                     stat("render_from_meshcache", &self.render_from_meshcache);
-                    stat("blit_canvas_to_buffer", &self.blit_canvas_to_buffer);
                     stat("render_direct", &self.render_direct);
+                    stat("blit_canvas_to_buffer", &self.blit_canvas_to_buffer);
+                    #[cfg(feature = "winit")]
+                    stat("winit_present", &self.winit_present);
 
                     ui.heading("");
                     ui.heading("Tri");

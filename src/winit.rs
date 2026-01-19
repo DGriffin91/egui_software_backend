@@ -716,6 +716,8 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                     full_output.pixels_per_point,
                 );
 
+                #[cfg(feature = "raster_stats")]
+                let present_start = std::time::Instant::now();
                 if !dirty_rect.is_empty() {
                     let dirty_rect = softbuffer::Rect {
                         x: dirty_rect.min_x,
@@ -726,7 +728,10 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                     buffer.present_with_damage(&[dirty_rect]).map_err(
                         SoftwareBackendAppError::soft_buffer("softbuffer::Buffer::present"),
                     )?;
-                    //buffer.present().unwrap();
+                }
+                #[cfg(feature = "raster_stats")]
+                {
+                    self.renderer.stats().winit_present.mark(present_start);
                 }
 
                 self.last_frame_time = Some(start.elapsed());
