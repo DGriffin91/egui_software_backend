@@ -58,4 +58,4 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --release -- -D warnings
 
-      # - run: cargo deny check
+      - uses: EmbarkStudios/cargo-deny-action@v2
