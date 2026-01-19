@@ -55,3 +55,7 @@ jobs:
         run: cargo clippy --locked --release -- -D warnings
 
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.92.0"
+          log-level: error
+          command: check
