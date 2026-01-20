@@ -757,12 +757,14 @@ impl SoftwareBackend {
     }
 }
 
+/// Implement this trait to write apps using the optional winit backend similarly to eframe's App.
 pub trait App {
     fn update(&mut self, ctx: &Context, software_backend: &mut SoftwareBackend);
 
     fn on_exit(&mut self, _ctx: &Context) {}
 }
 
+/// Used to initialize the software render backend app, renderer, and winit configuration.
 #[derive(Debug, Clone)]
 pub struct SoftwareBackendAppConfiguration {
     /// The underlying egui viewport builder that is used to create the window with winit.
@@ -1058,6 +1060,7 @@ impl Default for SoftwareBackendAppConfiguration {
 
 const ONE_PIXEL: NonZeroU32 = NonZeroU32::new(1).unwrap();
 
+/// Starts the app.
 pub fn run_app_with_software_backend<T: App>(
     settings: SoftwareBackendAppConfiguration,
     egui_app_factory: impl FnMut(Context) -> T,

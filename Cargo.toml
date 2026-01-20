@@ -48,8 +48,6 @@ opt-level = 3
 opt-level = 3
 
 [workspace]
-# run bevy example with `cargo run -p bevy_example --release`
-# members = ["examples/bevy_example", "constify"]
 members = ["constify"]
 
 [features]

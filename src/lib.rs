@@ -1,3 +1,64 @@
+//! CPU software render backend for egui
+//!
+//! ## Basic example usage:
+//! ```rust
+//!use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
+//!let buffer = &mut vec![[0u8; 4]; 512 * 512];
+//!let mut buffer_ref = BufferMutRef::new(buffer, 512, 512);
+//!let ctx = egui::Context::default();
+//!let mut demo = egui_demo_lib::DemoWindows::default();
+//!let mut sw_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra);
+//!
+//!let out = ctx.run(egui::RawInput::default(), |ctx| {
+//!    demo.ui(ctx);
+//!});
+//!
+//!let primitives = ctx.tessellate(out.shapes, out.pixels_per_point);
+//!
+//!sw_render.render(
+//!    &mut buffer_ref,
+//!    &primitives,
+//!    &out.textures_delta,
+//!    out.pixels_per_point,
+//!);
+//!```
+//!
+//! ## Usage with optional winit backend:
+//! ```rust
+//!use egui::vec2;
+//!use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
+//!
+//!struct EguiApp {}
+//!
+//!impl EguiApp {
+//!    fn new(context: egui::Context) -> Self {
+//!        egui_extras::install_image_loaders(&context);
+//!        EguiApp {}
+//!    }
+//!}
+//!
+//!impl egui_software_backend::App for EguiApp {
+//!    fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
+//!        egui::CentralPanel::default().show(ctx, |ui| {
+//!            ui.label("Hello World!");
+//!        });
+//!    }
+//!}
+//!
+//!fn main() {
+//!    let settings = SoftwareBackendAppConfiguration::new()
+//!        .inner_size(Some(vec2(500.0, 300.0)))
+//!        .title(Some("Simple example".to_string()));
+//!
+//!    egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
+//!        //Can fail if winit fails to create the window
+//!        .expect("Failed to run app")
+//!}
+//!```
+//!
+//!
+//!
+
 #![no_std]
 extern crate alloc;
 
@@ -63,6 +124,8 @@ pub(crate) fn neon() -> bool {
 
 const TILE_SIZE: usize = 64;
 
+/// Used to define the color swizzle order. Some backends require Rgba and others require Bgra. The renderer swizzles
+/// textures as they are loaded so they can later be rasterized directly onto the frame buffer.
 #[derive(Copy, Clone, Default)]
 pub enum ColorFieldOrder {
     #[default]
@@ -70,6 +133,7 @@ pub enum ColorFieldOrder {
     Bgra,
 }
 
+/// Software render backend for egui.
 pub struct EguiSoftwareRender {
     textures: HashMap<egui::TextureId, EguiTexture>,
     cached_primitives: HashMap<u32, CachedPrimitive>,
@@ -1001,6 +1065,7 @@ impl Canvas {
     }
 }
 
+/// A region of cached rendered image data that corresponds to a ClippedPrimitive.
 pub struct CachedPrimitive {
     buffer: Vec<[u8; 4]>,
     min_x: usize,
@@ -1074,6 +1139,7 @@ impl CachedPrimitive {
     }
 }
 
+/// A mutable reference to a slice of image buffer data and corresponding image extents.
 #[derive(Debug)]
 pub struct BufferMutRef<'a> {
     pub data: &'a mut [[u8; 4]],
@@ -1123,6 +1189,7 @@ impl<'a> BufferMutRef<'a> {
     }
 }
 
+/// A reference to a slice of image buffer data and corresponding image extents.
 #[derive(Debug)]
 pub struct BufferRef<'a> {
     pub data: &'a [[u8; 4]],
