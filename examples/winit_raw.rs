@@ -47,7 +47,7 @@ fn main() {
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(!args.no_opt)
         .with_convert_tris_to_rects(!args.no_rect)
-        .with_mode(if args.direct {
+        .with_caching(if args.direct {
             egui_software_backend::SoftwareRenderCaching::Direct
         } else {
             egui_software_backend::SoftwareRenderCaching::BlendTiled

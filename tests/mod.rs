@@ -61,7 +61,7 @@ mod tests {
                         let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Rgba)
                             .with_allow_raster_opt(allow_raster_opt)
                             .with_convert_tris_to_rects(convert_tris_to_rects)
-                            .with_mode(mode)
+                            .with_caching(mode)
                             .with_canvas();
 
                         let mut harness = HarnessBuilder::default()

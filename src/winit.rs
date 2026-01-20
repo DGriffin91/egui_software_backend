@@ -1117,7 +1117,7 @@ pub fn run_app_with_software_backend<T: App>(
     let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(settings.allow_raster_opt)
         .with_convert_tris_to_rects(settings.convert_tris_to_rects)
-        .with_mode(settings.caching);
+        .with_caching(settings.caching);
 
     let event_loop: EventLoop<UserEvent> = EventLoop::with_user_event()
         .build()

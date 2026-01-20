@@ -103,7 +103,7 @@ struct EguiSoftwareRenderInner {
     output_field_order: ColorFieldOrder,
     convert_tris_to_rects: bool,
     allow_raster_opt: bool,
-    mode: SoftwareRenderCaching,
+    caching: SoftwareRenderCaching,
     #[cfg(feature = "raster_stats")]
     pub stats: RenderStats,
 }
@@ -158,7 +158,7 @@ impl EguiSoftwareRenderCanvas {
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) {
-        if self.renderer.inner.mode == SoftwareRenderCaching::Direct {
+        if self.renderer.inner.caching == SoftwareRenderCaching::Direct {
             self.renderer.render(
                 buffer_ref,
                 true,
@@ -184,7 +184,7 @@ impl EguiSoftwareRenderCanvas {
                 textures_delta,
                 pixels_per_point,
             );
-            if self.renderer.inner.mode == SoftwareRenderCaching::BlendTiled {
+            if self.renderer.inner.caching == SoftwareRenderCaching::BlendTiled {
                 dispatch_simd_impl!(|simd_impl| self
                     .renderer
                     .inner
@@ -215,7 +215,7 @@ impl EguiSoftwareRender {
                 output_field_order,
                 convert_tris_to_rects: true,
                 allow_raster_opt: true,
-                mode: SoftwareRenderCaching::BlendTiled,
+                caching: SoftwareRenderCaching::BlendTiled,
                 #[cfg(feature = "raster_stats")]
                 stats: Default::default(),
             },
@@ -239,8 +239,8 @@ impl EguiSoftwareRender {
     /// If true: rasterized ClippedPrimitives are cached and rendered to an intermediate tiled canvas. That canvas is
     /// then rendered over the frame buffer. If false ClippedPrimitives are rendered directly to the frame buffer.
     /// Rendering without caching is much slower and primarily intended for testing.
-    pub fn with_mode(mut self, set: SoftwareRenderCaching) -> Self {
-        self.inner.mode = set;
+    pub fn with_caching(mut self, set: SoftwareRenderCaching) -> Self {
+        self.inner.caching = set;
         self
     }
 
@@ -258,15 +258,15 @@ impl EguiSoftwareRender {
 
     /// Get the caching mode of the renderer
     pub fn caching(&self) -> SoftwareRenderCaching {
-        self.inner.mode
+        self.inner.caching
     }
 
     /// Change the caching mode of the renderer
     pub fn set_caching(&mut self, caching: SoftwareRenderCaching) {
-        if self.inner.mode == caching {
+        if self.inner.caching == caching {
             return;
         }
-        self.inner.mode = caching;
+        self.inner.caching = caching;
         self.clear_cache();
     }
 
@@ -315,7 +315,7 @@ impl EguiSoftwareRender {
     ) -> DirtyRect {
         #[cfg(feature = "raster_stats")]
         self.inner.stats.clear();
-        match self.inner.mode {
+        match self.inner.caching {
             SoftwareRenderCaching::Direct => {
                 self.inner
                     .render_direct(buffer_ref, paint_jobs, textures_delta, pixels_per_point);
@@ -964,7 +964,7 @@ impl EguiSoftwareRenderInner {
             }
         };
 
-        match self.mode {
+        match self.caching {
             SoftwareRenderCaching::MeshTiled => {
                 for &prim in &sorted_prim_cache {
                     for dirty_rect in self.dirty_rects.intersections(prim.rect) {
@@ -1104,7 +1104,7 @@ impl EguiSoftwareRenderInner {
     fn update_dirty_rects(&mut self, cached_primitives: &HashMap<u32, MeshCachedPrimitive>) {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
-        if self.mode == SoftwareRenderCaching::MeshTiled {
+        if self.caching == SoftwareRenderCaching::MeshTiled {
             self.dirty_rects.set_bboxes(
                 cached_primitives
                     .values()
