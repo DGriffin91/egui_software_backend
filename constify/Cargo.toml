@@ -1,8 +1,13 @@
 [package]
 name = "constify"
+description = "A procedural macro for basic static specialization."
 version = "0.0.1"
-edition = "2021"
-license = "Apache-2.0 OR MIT"
+edition = "2024"
+homepage = "https://github.com/DGriffin91/egui_software_backend"
+repository = "https://github.com/DGriffin91/egui_software_backend"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+keywords = ["const", "specialization", "dispatch", "currying"]
 
 [lib]
 proc-macro = true

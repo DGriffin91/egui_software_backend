@@ -2,6 +2,7 @@
 //!
 //! Example usage:
 //! ```rust
+//! use constify::constify;
 //! #[constify]
 //! fn foo(
 //!     #[constify] a: bool,
@@ -54,8 +55,8 @@ use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{
-    parse_macro_input, parse_quote, spanned::Spanned, Block, ConstParam, FnArg, GenericParam,
-    ItemFn, Pat, PatIdent, Result, Token, Type,
+    Block, ConstParam, FnArg, GenericParam, ItemFn, Pat, PatIdent, Result, Token, Type,
+    parse_macro_input, parse_quote, spanned::Spanned,
 };
 
 #[proc_macro_attribute]
