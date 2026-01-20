@@ -26,8 +26,6 @@ egui_kittest = { version = "0.33", optional = true }
 image = { version = "0.25", optional = true }
 
 [dev-dependencies]
-egui_software_backend = { path = ".", version = "0.0.1", features = ["test_render"] }
-
 egui = { version = "0.33", features = ["default_fonts"] }
 eframe = "0.33"
 egui_kittest = { version = "0.33", features = ["snapshot", "wgpu"] }
@@ -71,12 +69,12 @@ test_render = ["dep:image", "dep:egui_kittest"]
 winit = ["dep:winit", "softbuffer", "egui-winit", "bytemuck"]
 
 # Testing:
+# cargo test --features test_render
 # cargo test --all
 # cargo test --no-default-features
 # cargo test --all-features
 # cargo test --features rayon
 # cargo test --features raster_stats
-# cargo test --features test_render
 # cargo test --features rayon,raster_stats
 # cargo deny check
 

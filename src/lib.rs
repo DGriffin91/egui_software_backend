@@ -56,7 +56,12 @@
 //!}
 //!```
 //!
-//!
+//! Performance will be very poor without compiler optimizations. Run in release or use (Cargo.toml):
+//!```toml
+//!# Enable high optimizations for dependencies
+//![profile.dev.package."*"]
+//!opt-level = 3
+//!```
 //!
 
 #![no_std]

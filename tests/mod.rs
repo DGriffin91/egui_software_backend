@@ -1,3 +1,4 @@
+#![cfg(feature = "test_render")]
 mod tests {
 
     use egui::{Vec2, vec2};
