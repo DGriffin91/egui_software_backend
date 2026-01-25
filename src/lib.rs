@@ -24,7 +24,7 @@
 //!```
 //!
 //! ## Usage with optional winit backend:
-//! ```rust
+//! ```no_run
 //!use egui::vec2;
 //!use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
 //!
