@@ -1,22 +1,17 @@
 use constify::constify;
 use egui::{Vec2, vec2};
 
-use crate::{
-    BufferMutRef,
-    color::{egui_blend_u8, unorm_mult4x4},
-    egui_texture::EguiTexture,
-    render::DrawInfo,
-};
+use crate::{BufferMutRef, color::SelectedImpl, egui_texture::EguiTexture, render::DrawInfo};
 
 #[constify]
 pub fn draw_rect(
+    simd_impl: impl SelectedImpl,
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
     #[constify] vert_col_vary: bool,
     #[constify] vert_uvs_vary: bool,
     #[constify] alpha_blend: bool,
-    #[constify] simd: bool,
 ) {
     let const_tri_color_u8x4 = draw.const_tri_color_u8x4;
     let clip_bounds = &draw.clip_bounds;
@@ -42,27 +37,10 @@ pub fn draw_rect(
     if !vert_uvs_vary && !vert_col_vary {
         for y in min_y..max_y {
             if alpha_blend {
-                if simd {
-                    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-                    {
-                        #[cfg(target_arch = "x86_64")]
-                        unsafe {
-                            crate::color_sse41::egui_blend_u8_slice_one_src(
-                                const_tri_color_u8x4,
-                                buffer.get_mut_span(min_x, max_x, y),
-                            )
-                        }
-                        #[cfg(target_arch = "aarch64")]
-                        crate::color_neon::egui_blend_u8_slice_one_src(
-                            const_tri_color_u8x4,
-                            buffer.get_mut_span(min_x, max_x, y),
-                        )
-                    }
-                } else {
-                    for pixel in buffer.get_mut_span(min_x, max_x, y) {
-                        *pixel = egui_blend_u8(const_tri_color_u8x4, *pixel);
-                    }
-                }
+                simd_impl.egui_blend_u8_slice_one_src(
+                    const_tri_color_u8x4,
+                    buffer.get_mut_span(min_x, max_x, y),
+                );
             } else {
                 buffer
                     .get_mut_span(min_x, max_x, y)
@@ -114,32 +92,7 @@ pub fn draw_rect(
                 let dst = &mut buffer.get_mut_span(min_x, max_x, y);
                 let src = &texture.data[tex_start..tex_end];
 
-                if simd {
-                    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-                    {
-                        #[cfg(target_arch = "x86_64")]
-                        unsafe {
-                            crate::color_sse41::egui_blend_u8_slice_tinted(
-                                src,
-                                draw.const_vert_color_u8x4,
-                                dst,
-                            )
-                        }
-                        #[cfg(target_arch = "aarch64")]
-                        crate::color_neon::egui_blend_u8_slice_tinted(
-                            src,
-                            draw.const_vert_color_u8x4,
-                            dst,
-                        );
-                    }
-                } else {
-                    for (pixel, tex_color) in dst.iter_mut().zip(src) {
-                        *pixel = egui_blend_u8(
-                            unorm_mult4x4(draw.const_vert_color_u8x4, *tex_color),
-                            *pixel,
-                        );
-                    }
-                }
+                simd_impl.egui_blend_u8_slice_tinted(src, draw.const_vert_color_u8x4, dst);
                 tex_row += 1;
             }
         } else {
@@ -155,8 +108,8 @@ pub fn draw_rect(
                 for x in min_x..max_x {
                     let tex_color = texture.sample_bilinear(uv);
                     let pixel = &mut buffer.data[x + buf_y];
-                    let src = unorm_mult4x4(draw.const_vert_color_u8x4, tex_color);
-                    *pixel = egui_blend_u8(src, *pixel);
+                    let src = simd_impl.unorm_mult4x4(draw.const_vert_color_u8x4, tex_color);
+                    *pixel = simd_impl.egui_blend_u8(src, *pixel);
                     uv.x += uv_step.x;
                 }
                 uv.y += uv_step.y;
