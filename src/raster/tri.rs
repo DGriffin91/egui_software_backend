@@ -2,7 +2,7 @@ use constify::constify;
 
 use crate::{
     BufferMutRef,
-    color::{egui_blend_u8, unorm_mult4x4, vec4_to_u8x4},
+    color::{SelectedImpl, vec4_to_u8x4},
     egui_texture::EguiTexture,
     raster::{
         bary::SingleStepper,
@@ -13,13 +13,13 @@ use crate::{
 
 #[constify]
 pub fn draw_tri<const SUBPIX_BITS: i32>(
+    simd_impl: impl SelectedImpl,
     buffer: &mut BufferMutRef,
     texture: &EguiTexture,
     draw: &DrawInfo,
     #[constify] vert_col_vary: bool,
     #[constify] vert_uvs_vary: bool,
     #[constify] alpha_blend: bool,
-    #[constify] simd: bool,
 ) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         SingleStepper::from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
@@ -62,52 +62,20 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
             let ss_start = (ss_min.x + start) as usize;
             let ss_end = (ss_min.x + end) as usize;
 
-            if simd && alpha_blend && !vert_uvs_vary {
-                #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-                {
-                    #[cfg(target_arch = "aarch64")]
-                    use crate::color_neon::*;
-                    #[cfg(target_arch = "x86_64")]
-                    use crate::color_sse41::*;
-
-                    let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
-                    if vert_col_vary {
-                        #[cfg(target_arch = "x86_64")]
-                        unsafe {
-                            crate::color_sse41::egui_blend_u8_slice_one_src_tinted_fn(
-                                draw.const_tex_color_u8x4,
-                                || {
-                                    let v = vec4_to_u8x4(&vert_col_stepper.attr);
-                                    vert_col_stepper.col_step();
-                                    v
-                                },
-                                dst,
-                            )
-                        }
-                        #[cfg(target_arch = "aarch64")]
-                        crate::color_neon::egui_blend_u8_slice_one_src_tinted_fn(
-                            draw.const_tex_color_u8x4,
-                            || {
-                                let v = vec4_to_u8x4(&vert_col_stepper.attr);
-                                vert_col_stepper.col_step();
-                                v
-                            },
-                            dst,
-                        )
-                    } else {
-                        #[cfg(target_arch = "x86_64")]
-                        unsafe {
-                            crate::color_sse41::egui_blend_u8_slice_one_src(
-                                draw.const_tri_color_u8x4,
-                                dst,
-                            )
-                        }
-                        #[cfg(target_arch = "aarch64")]
-                        crate::color_neon::egui_blend_u8_slice_one_src(
-                            draw.const_tri_color_u8x4,
-                            dst,
-                        )
-                    }
+            if alpha_blend && !vert_uvs_vary {
+                let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
+                if vert_col_vary {
+                    simd_impl.egui_blend_u8_slice_one_src_tinted_fn(
+                        draw.const_tex_color_u8x4,
+                        || {
+                            let v = vec4_to_u8x4(&vert_col_stepper.attr);
+                            vert_col_stepper.col_step();
+                            v
+                        },
+                        dst,
+                    )
+                } else {
+                    simd_impl.egui_blend_u8_slice_one_src(draw.const_tri_color_u8x4, dst)
                 }
             } else {
                 for ss_x in ss_start..ss_end {
@@ -122,13 +90,13 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
                         } else {
                             draw.const_vert_color_u8x4
                         };
-                        unorm_mult4x4(vert_color, tex_color)
+                        simd_impl.unorm_mult4x4(vert_color, tex_color)
                     } else {
                         draw.const_tri_color_u8x4
                     };
                     let pixel = buffer.get_mut(ss_x as usize, ss_y as usize);
                     *pixel = if alpha_blend {
-                        egui_blend_u8(src, *pixel)
+                        simd_impl.egui_blend_u8(src, *pixel)
                     } else {
                         src
                     };

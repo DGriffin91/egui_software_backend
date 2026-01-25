@@ -79,17 +79,13 @@ use egui::{Color32, Mesh, Pos2, Vec2, ahash::HashMap, vec2};
 #[cfg(feature = "raster_stats")]
 use crate::stats::RasterStats;
 use crate::{
-    color::{egui_blend_u8, swizzle_rgba_bgra},
+    color::{AvailableImpl, SelectedImpl, swizzle_rgba_bgra},
     egui_texture::EguiTexture,
     hash::Hash32,
     render::{draw_egui_mesh, egui_orient2df},
 };
 
 pub(crate) mod color;
-#[cfg(target_arch = "aarch64")]
-pub(crate) mod color_neon;
-#[cfg(target_arch = "x86_64")]
-pub(crate) mod color_sse41;
 pub(crate) mod egui_texture;
 pub(crate) mod hash;
 pub(crate) mod math;
@@ -152,6 +148,7 @@ pub struct EguiSoftwareRender {
     convert_tris_to_rects: bool,
     allow_raster_opt: bool,
     cacheing_enabled: bool,
+    simd_impl: AvailableImpl,
     #[cfg(feature = "raster_stats")]
     pub stats: RasterStats,
 }
@@ -174,6 +171,7 @@ impl EguiSoftwareRender {
             convert_tris_to_rects: true,
             allow_raster_opt: true,
             cacheing_enabled: true,
+            simd_impl: Default::default(),
             #[cfg(feature = "raster_stats")]
             stats: Default::default(),
         }
@@ -356,14 +354,15 @@ impl EguiSoftwareRender {
 
                         let canvas_row_offset = tile_row * TILE_SIZE;
 
-                        self.blit_tile(
+                        dispatch_simd_impl!(self.simd_impl, |simd_impl| self.blit_tile(
+                            simd_impl,
                             buffer_tile_row,
                             x_start,
                             y_start,
                             x_end,
                             y_end,
                             canvas_row_offset,
-                        );
+                        ));
                     }
                 });
         }
@@ -382,7 +381,8 @@ impl EguiSoftwareRender {
                 let x_end = (x_start + TILE_SIZE).min(width);
                 let y_end = (y_start + TILE_SIZE).min(height);
 
-                self.blit_tile(buffer, x_start, y_start, x_end, y_end, 0);
+                dispatch_simd_impl!(self.simd_impl, |simd_impl| self
+                    .blit_tile(simd_impl, buffer, x_start, y_start, x_end, y_end, 0));
             }
         }
 
@@ -394,6 +394,7 @@ impl EguiSoftwareRender {
 
     fn blit_tile(
         &self,
+        simd_impl: impl SelectedImpl,
         buffer: &mut BufferMutRef,
         x_start: usize,
         y_start: usize,
@@ -401,27 +402,11 @@ impl EguiSoftwareRender {
         y_end: usize,
         canvas_row_offset: usize,
     ) {
-        if sse41() || neon() {
-            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-            {
-                for y in y_start..y_end {
-                    let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
-                    let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                    #[cfg(target_arch = "x86_64")]
-                    unsafe {
-                        crate::color_sse41::egui_blend_u8_slice(src_row, dst_row)
-                    }
-                    #[cfg(target_arch = "aarch64")]
-                    crate::color_neon::egui_blend_u8_slice(src_row, dst_row);
-                }
-            }
-        } else {
-            for y in y_start..y_end {
-                let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
-                let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-                for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                    *dst = egui_blend_u8(src, *dst);
-                }
+        for y in y_start..y_end {
+            let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
+            let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
+            for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
+                *dst = simd_impl.egui_blend_u8(src, *dst);
             }
         }
     }
@@ -486,6 +471,7 @@ impl EguiSoftwareRender {
             let render_in_low_precision = mesh_size.x > 4096.0 || mesh_size.y > 4096.0;
             if render_in_low_precision {
                 draw_egui_mesh::<2>(
+                    self.simd_impl,
                     &self.textures,
                     direct_draw_buffer,
                     &clip_rect,
@@ -498,6 +484,7 @@ impl EguiSoftwareRender {
                 );
             } else {
                 draw_egui_mesh::<8>(
+                    self.simd_impl,
                     &self.textures,
                     direct_draw_buffer,
                     &clip_rect,
@@ -711,6 +698,7 @@ impl EguiSoftwareRender {
                         if render_in_low_precision {
                             // Seems to not be an issue in direct draw? Seems like a bug.
                             draw_egui_mesh::<2>(
+                                self.simd_impl,
                                 &self.textures,
                                 &mut buffer_ref,
                                 &clip_rect,
@@ -723,6 +711,7 @@ impl EguiSoftwareRender {
                             );
                         } else {
                             draw_egui_mesh::<8>(
+                                self.simd_impl,
                                 &self.textures,
                                 &mut buffer_ref,
                                 &clip_rect,
@@ -765,6 +754,7 @@ impl EguiSoftwareRender {
     }
 
     fn update_canvas_from_cached(&mut self) {
+        let simd_impl = self.simd_impl;
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
 
@@ -817,6 +807,7 @@ impl EguiSoftwareRender {
                             let tile_x = tile_idx % self.tiles_dim[0];
 
                             update_canvas_tile(
+                                simd_impl,
                                 &sorted_prim_cache,
                                 canvas_tile_row,
                                 tile_x,
@@ -841,6 +832,7 @@ impl EguiSoftwareRender {
                 let tile_y = tile_idx / self.tiles_dim[0];
                 let full_height = canvas.height;
                 update_canvas_tile(
+                    simd_impl,
                     &sorted_prim_cache,
                     &mut canvas,
                     tile_x,
@@ -939,6 +931,7 @@ impl EguiSoftwareRender {
 }
 
 fn update_canvas_tile(
+    simd_impl: AvailableImpl,
     sorted_prim_cache: &[&CachedPrimitive],
     canvas: &mut BufferMutRef,
     tile_x: usize,
@@ -999,31 +992,14 @@ fn update_canvas_tile(
             (canvas_start..canvas_end, prim_start..prim_end)
         };
 
-        if sse41() || neon() {
-            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-            {
-                for y in min_y..max_y {
-                    let (canvas_slice, prim_slice) = get_ranges(y);
-                    let src_row = &prim_buf.data[prim_slice];
-                    let dst_row = &mut canvas.data[canvas_slice];
-                    #[cfg(target_arch = "x86_64")]
-                    unsafe {
-                        crate::color_sse41::egui_blend_u8_slice(src_row, dst_row)
-                    }
-                    #[cfg(target_arch = "aarch64")]
-                    crate::color_neon::egui_blend_u8_slice(src_row, dst_row)
-                }
-            }
-        } else {
+        dispatch_simd_impl!(simd_impl, |simd_impl| {
             for y in min_y..max_y {
                 let (canvas_slice, prim_slice) = get_ranges(y);
                 let src_row = &prim_buf.data[prim_slice];
                 let dst_row = &mut canvas.data[canvas_slice];
-                for (pixel, src) in dst_row.iter_mut().zip(src_row) {
-                    *pixel = egui_blend_u8(*src, *pixel);
-                }
+                simd_impl.egui_blend_u8_slice(src_row, dst_row);
             }
-        }
+        });
     }
 }
 
