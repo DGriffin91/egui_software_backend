@@ -2,7 +2,7 @@
 mod tests {
 
     use egui::{Vec2, vec2};
-    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
+    use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching};
     use image::{ImageBuffer, Rgba};
 
     use egui_kittest::HarnessBuilder;
@@ -18,7 +18,7 @@ mod tests {
         fn app() -> impl FnMut(&egui::Context) {
             let mut egui_demo = egui_demo_lib::DemoWindows::default();
             move |ctx: &egui::Context| {
-                egui_demo.ui(&ctx);
+                egui_demo.ui(ctx);
 
                 // egui::CentralPanel::default().show(ctx, |ui| {
                 //     #[allow(const_item_mutation)]
@@ -29,29 +29,41 @@ mod tests {
         }
 
         let _ = std::fs::create_dir("tests/tmp/");
+        let _ = std::fs::create_dir("tests/gpu/");
 
         // egui's failed_px_count_thresold default is 0
         for (px_per_point, failed_px_count_thresold) in [(1.0, 8), (1.5, 15)] {
             // --- Render on GPU
-            let mut harness = HarnessBuilder::default()
-                .with_size(RESOLUTION)
-                .with_pixels_per_point(px_per_point)
-                .renderer(egui_kittest::LazyRenderer::default())
-                .build(app());
-            harness.run();
-            let gpu_render_image = harness.render().unwrap();
-            gpu_render_image
-                .save(format!("tests/tmp/gpu_px_per_point{px_per_point}.png"))
-                .unwrap();
+            let gpu_path = format!("tests/gpu/gpu_px_per_point{px_per_point}.png");
+            let gpu_render_image = match image::open(&gpu_path) {
+                Ok(gpu_prerendered_image) => gpu_prerendered_image.into_rgba8(),
+                Err(_) => {
+                    let mut harness = HarnessBuilder::default()
+                        .with_size(RESOLUTION)
+                        .with_pixels_per_point(px_per_point)
+                        .renderer(egui_kittest::LazyRenderer::default())
+                        .build(app());
+                    harness.run();
+                    let gpu_render_image = harness.render().unwrap();
+                    gpu_render_image.save(&gpu_path).unwrap();
+                    gpu_render_image
+                }
+            };
 
-            for use_cache in [false, true] {
+            for mode in [
+                SoftwareRenderCaching::Direct,
+                SoftwareRenderCaching::Mesh,
+                SoftwareRenderCaching::MeshTiled,
+                SoftwareRenderCaching::BlendTiled,
+            ] {
                 for allow_raster_opt in [false, true] {
                     for convert_tris_to_rects in [false, true] {
                         // --- Render on CPU
                         let egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Rgba)
                             .with_allow_raster_opt(allow_raster_opt)
                             .with_convert_tris_to_rects(convert_tris_to_rects)
-                            .with_caching(use_cache);
+                            .with_caching(mode)
+                            .with_canvas();
 
                         let mut harness = HarnessBuilder::default()
                             .with_size(RESOLUTION)
@@ -62,7 +74,7 @@ mod tests {
                         let cpu_render_image = harness.render().unwrap();
 
                         let name = format!(
-                            "px_per_pt {px_per_point}, use_cache {use_cache}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
+                            "px_per_pt {px_per_point}, mode {mode:?}, raster_opt {allow_raster_opt}, tris_to_rects {convert_tris_to_rects}"
                         );
 
                         if let Some((pixels_failed, diff_image)) = dify(

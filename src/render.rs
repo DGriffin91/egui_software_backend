@@ -1,17 +1,18 @@
 #![allow(unsafe_code)]
-use egui::{Pos2, Vec2, ahash::HashMap, epaint::Vertex, vec2};
 
 use crate::{
     BufferMutRef, EguiTexture,
-    color::{u8x4_to_vec4, vec4_to_u8x4},
+    color::{AvailableImpl, SelectedImpl, u8x4_to_vec4, vec4_to_u8x4},
     math::{
         i64vec2::{I64Vec2, i64vec2},
         vec4::Vec4,
     },
     raster::{rect::draw_rect, tri::draw_tri},
 };
+use egui::{Pos2, Vec2, ahash::HashMap, epaint::Vertex, vec2};
 
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
+    simd_impl: AvailableImpl,
     textures: &HashMap<egui::TextureId, EguiTexture>,
     buffer: &mut BufferMutRef,
     clip_rect: &egui::Rect,
@@ -19,38 +20,10 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     vert_offset: Vec2,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
-    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-    stats: &mut crate::stats::RasterStats,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))] stats: &crate::stats::RenderStats,
 ) {
-    #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), feature = "std"))]
-    if crate::sse41() || crate::neon() {
-        draw_egui_mesh_impl::<SUBPIX_BITS, true>(
-            textures,
-            buffer,
-            clip_rect,
-            mesh,
-            vert_offset,
-            allow_raster_opt,
-            convert_tris_to_rects,
-            #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-            stats,
-        )
-    } else {
-        draw_egui_mesh_impl::<SUBPIX_BITS, false>(
-            textures,
-            buffer,
-            clip_rect,
-            mesh,
-            vert_offset,
-            allow_raster_opt,
-            convert_tris_to_rects,
-            #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-            stats,
-        )
-    }
-
-    #[cfg(not(feature = "std"))]
-    draw_egui_mesh_impl::<SUBPIX_BITS, false>(
+    crate::dispatch_simd_impl!(simd_impl, |simd_impl| draw_egui_mesh_impl::<SUBPIX_BITS>(
+        simd_impl,
         textures,
         buffer,
         clip_rect,
@@ -60,10 +33,12 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         convert_tris_to_rects,
         #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
         stats,
-    )
+    ))
 }
 
-pub fn draw_egui_mesh_impl<const SUBPIX_BITS: i32, const SIMD: bool>(
+#[allow(clippy::too_many_arguments)]
+fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
+    simd_impl: impl SelectedImpl,
     textures: &HashMap<egui::TextureId, EguiTexture>,
     buffer: &mut BufferMutRef,
     clip_rect: &egui::Rect,
@@ -71,8 +46,7 @@ pub fn draw_egui_mesh_impl<const SUBPIX_BITS: i32, const SIMD: bool>(
     vert_offset: Vec2,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
-    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-    stats: &mut crate::stats::RasterStats,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))] stats: &crate::stats::RenderStats,
 ) {
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
         return;
@@ -153,7 +127,7 @@ pub fn draw_egui_mesh_impl<const SUBPIX_BITS: i32, const SIMD: bool>(
         );
 
         if !allow_raster_opt {
-            draw_tri::<SUBPIX_BITS>(buffer, texture, &draw, true, true, true, false);
+            draw_tri::<SUBPIX_BITS>(simd_impl, buffer, texture, &draw, true, true, true);
             i += 3;
             continue;
         }
@@ -238,34 +212,34 @@ pub fn draw_egui_mesh_impl<const SUBPIX_BITS: i32, const SIMD: bool>(
         let rect = found_rect && !vert_col_vary; // vert_col_vary not supported by rect render
 
         #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-        stats.start_raster();
+        let mut stats_start = stats.start_raster();
         if rect {
             draw_rect(
+                simd_impl,
                 buffer,
                 texture,
                 &draw,
                 vert_col_vary,
                 vert_uvs_vary,
                 alpha_blend,
-                SIMD,
             );
 
             #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-            stats.finish_rect(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
+            stats_start.finish_rect(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 6;
         } else {
             draw_tri::<SUBPIX_BITS>(
+                simd_impl,
                 buffer,
                 texture,
                 &draw,
                 vert_col_vary,
                 vert_uvs_vary,
                 alpha_blend,
-                SIMD,
             );
 
             #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-            stats.finish_tri(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
+            stats_start.finish_tri(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 3;
         }
     }
