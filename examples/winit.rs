@@ -36,7 +36,7 @@ impl egui_software_backend::App for EguiApp {
 
             #[cfg(feature = "raster_stats")]
             egui::Window::new("Stats").show(ctx, |ui| {
-                backend.stats.render(ui);
+                // backend.stats.render(ui);
             });
 
             if self.frame_times.len() < 100 {
