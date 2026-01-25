@@ -1,8 +1,8 @@
 use constify::constify;
 
 use crate::{
-    BufferMutRef,
-    color::{SelectedImpl, vec4_to_u8x4},
+    BufferMutRef, SelectedImpl,
+    color::vec4_to_u8x4,
     egui_texture::EguiTexture,
     raster::{
         bary::SingleStepper,
@@ -59,11 +59,11 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
             if vert_uvs_vary {
                 vert_uv_stepper.attr += vert_uv_stepper.step_x * start as f32;
             }
-            let ss_start = (ss_min.x + start) as usize;
-            let ss_end = (ss_min.x + end) as usize;
+            let ss_start = (ss_min.x + start) as u32;
+            let ss_end = (ss_min.x + end) as u32;
 
             if alpha_blend && !vert_uvs_vary {
-                let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as usize);
+                let dst = buffer.get_mut_span(ss_start, ss_end, ss_y as u32);
                 if vert_col_vary {
                     simd_impl.egui_blend_u8_slice_one_src_tinted_fn(
                         draw.const_tex_color_u8x4,
@@ -94,7 +94,7 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
                     } else {
                         draw.const_tri_color_u8x4
                     };
-                    let pixel = buffer.get_mut(ss_x as usize, ss_y as usize);
+                    let pixel = buffer.get_mut(ss_x as u32, ss_y as u32);
                     *pixel = if alpha_blend {
                         simd_impl.egui_blend_u8(src, *pixel)
                     } else {

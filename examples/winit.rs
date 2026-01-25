@@ -1,7 +1,9 @@
+use egui::Ui;
 use egui::Vec2;
 use egui::ViewportCommand;
 use egui_demo_lib::ColorTest;
 use egui_demo_lib::DemoWindows;
+use egui_software_backend::SoftwareRenderCaching;
 use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
 
 struct EguiApp {
@@ -19,12 +21,8 @@ impl EguiApp {
             frame_times: Vec::new(),
         }
     }
-}
 
-impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
-        backend.set_capture_frame_time(true);
-
+    fn ui(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |_ui| {
             self.demo.ui(ctx);
 
@@ -33,11 +31,45 @@ impl egui_software_backend::App for EguiApp {
                     self.color_test.ui(ui);
                 });
             });
+        });
+    }
+}
+
+impl eframe::App for EguiApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |_ui| {
+            self.ui(ctx);
+        });
+    }
+}
+
+fn software_backend_ui(backend: &mut SoftwareBackend, ui: &mut Ui) {
+    let old = backend.caching();
+    let mut new = old;
+    egui::ComboBox::from_label("SoftwareRenderCaching")
+        .selected_text(format!("{old:?}"))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut new, SoftwareRenderCaching::BlendTiled, "BlendTiled");
+            ui.selectable_value(&mut new, SoftwareRenderCaching::MeshTiled, "MeshTiled");
+            ui.selectable_value(&mut new, SoftwareRenderCaching::Mesh, "Mesh");
+            ui.selectable_value(&mut new, SoftwareRenderCaching::Direct, "Direct");
+        });
+    if new != old {
+        backend.set_caching(new);
+    }
+}
+
+impl egui_software_backend::App for EguiApp {
+    fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
+        egui::CentralPanel::default().show(ctx, |_ui| {
+            self.ui(ctx);
 
             #[cfg(feature = "raster_stats")]
             egui::Window::new("Stats").show(ctx, |ui| {
-                // backend.stats.render(ui);
+                backend.display_stats(ui);
             });
+
+            egui::Window::new("Software Backend").show(ctx, |ui| software_backend_ui(backend, ui));
 
             if self.frame_times.len() < 100 {
                 self.frame_times

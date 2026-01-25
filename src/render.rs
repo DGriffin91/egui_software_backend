@@ -20,8 +20,7 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     vert_offset: Vec2,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
-    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-    stats: &mut crate::stats::RasterStats,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))] stats: &crate::stats::RenderStats,
 ) {
     crate::dispatch_simd_impl!(simd_impl, |simd_impl| draw_egui_mesh_impl::<SUBPIX_BITS>(
         simd_impl,
@@ -47,8 +46,7 @@ fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
     vert_offset: Vec2,
     allow_raster_opt: bool,
     convert_tris_to_rects: bool,
-    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-    stats: &mut crate::stats::RasterStats,
+    #[cfg(all(feature = "raster_stats", not(feature = "rayon")))] stats: &crate::stats::RenderStats,
 ) {
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
         return;
@@ -214,7 +212,7 @@ fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
         let rect = found_rect && !vert_col_vary; // vert_col_vary not supported by rect render
 
         #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-        stats.start_raster();
+        let mut stats_start = stats.start_raster();
         if rect {
             draw_rect(
                 simd_impl,
@@ -227,7 +225,7 @@ fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
             );
 
             #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-            stats.finish_rect(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
+            stats_start.finish_rect(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 6;
         } else {
             draw_tri::<SUBPIX_BITS>(
@@ -241,7 +239,7 @@ fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
             );
 
             #[cfg(all(feature = "raster_stats", not(feature = "rayon")))]
-            stats.finish_tri(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
+            stats_start.finish_tri(fsize, vert_uvs_vary, vert_col_vary, alpha_blend);
             i += 3;
         }
     }
