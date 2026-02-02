@@ -49,7 +49,10 @@ pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
         )
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(any(
+        not(feature = "std"),
+        not(any(target_arch = "x86_64", target_arch = "aarch64"))
+    ))]
     draw_egui_mesh_impl::<SUBPIX_BITS, false>(
         textures,
         buffer,
