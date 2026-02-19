@@ -46,7 +46,7 @@ pub(crate) fn available_instrs() -> &'static [AvailableImpl] {
 
     #[cfg(all(target_arch = "aarch64", feature = "std"))]
     if std::arch::is_aarch64_feature_detected!("neon") {
-        const NEON: neon::NeonImp = unsafe { neon::NeonImpl::new() };
+        const NEON: neon::NeonImpl = unsafe { neon::NeonImpl::new() };
         return &[AvailableImpl::Neon(NEON), AvailableImpl::Generic(GENERIC)];
     }
 
