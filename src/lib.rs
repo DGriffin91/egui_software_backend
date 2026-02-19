@@ -405,9 +405,7 @@ impl EguiSoftwareRender {
         for y in y_start..y_end {
             let src_row = self.canvas.get_span(x_start, x_end, y + canvas_row_offset);
             let dst_row = &mut buffer.get_mut_span(x_start, x_end, y);
-            for (dst, &src) in dst_row.iter_mut().zip(src_row.iter()) {
-                *dst = simd_impl.egui_blend_u8(src, *dst);
-            }
+            simd_impl.egui_blend_u8_slice(src_row, dst_row);
         }
     }
 
