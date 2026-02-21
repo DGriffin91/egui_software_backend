@@ -3,8 +3,8 @@
 use core::ptr::write_unaligned;
 use core::{arch::x86_64::*, ptr::read_unaligned};
 
-use crate::color::SelectedImpl;
 use crate::color::sse41::Sse41Impl;
+use crate::color::{GenericImpl, SelectedImpl};
 
 type U8x4x4 = __m128i;
 type U16x4x2 = __m128i;
@@ -250,7 +250,7 @@ impl SelectedImpl for Avx2Impl {
 
     #[inline]
     fn unorm_mult4x4(self, a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
-        self.sse41.unorm_mult4x4(a, b)
+        GenericImpl.unorm_mult4x4(a, b)
     }
 }
 
