@@ -67,9 +67,6 @@ impl SelectedImpl for Sse41Impl {
 #[target_feature(enable = "sse4.1")]
 fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let alpha = src[3];
-    if alpha == 255 {
-        return src;
-    }
 
     let alpha_compl = _mm_set1_epi16(0xFFi16 ^ (alpha as i16));
     let e1 = _mm_set1_epi16(0x0080);
