@@ -110,7 +110,8 @@ fn draw_tri_impl<
                         } else {
                             draw.const_vert_color_u8x4
                         };
-                        simd_impl.unorm_mult4x4(vert_color, tex_color)
+                        crate::color::GenericImpl.unorm_mult4x4(vert_color, tex_color)
+                        //^ `simd_impl.unorm_mult4x4` is slower at least in avx2 and sse4.1
                     } else {
                         draw.const_tri_color_u8x4
                     };
