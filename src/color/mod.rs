@@ -89,19 +89,19 @@ macro_rules! dispatch_simd_impl {
     ($available_impl:expr, |$simd_impl:ident| $body:expr) => {
         match $available_impl {
             $crate::color::AvailableImpl::Generic(i) => {
-                (|$simd_impl: $crate::color::GenericImpl| $body)(i)
+                i.dispatch(|$simd_impl: $crate::color::GenericImpl| $body)
             }
             #[cfg(target_arch = "x86_64")]
             $crate::color::AvailableImpl::Sse41(i) => {
-                (|$simd_impl: $crate::color::sse41::Sse41Impl| $body)(i)
+                i.dispatch(|$simd_impl: $crate::color::sse41::Sse41Impl| $body)
             }
             #[cfg(target_arch = "x86_64")]
             $crate::color::AvailableImpl::Avx2(i) => {
-                (|$simd_impl: $crate::color::avx2::Avx2Impl| $body)(i)
+                i.dispatch(|$simd_impl: $crate::color::avx2::Avx2Impl| $body)
             }
             #[cfg(target_arch = "aarch64")]
             $crate::color::AvailableImpl::Neon(i) => {
-                (|$simd_impl: $crate::color::neon::NeonImpl| $body)(i)
+                i.dispatch(|$simd_impl: $crate::color::neon::NeonImpl| $body)
             }
         }
     };
@@ -112,6 +112,12 @@ macro_rules! dispatch_simd_impl {
 ///
 /// All methods of this trait contains a generic implementation
 pub(crate) trait SelectedImpl: Copy + Sync + Send + 'static {
+    /// Trick the compiler into compiling `f` with the same target_feature as this impl.
+    #[inline]
+    fn dispatch<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
+    }
+
     fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
         for (pixel, src) in dst.iter_mut().zip(src) {
             *pixel = self.egui_blend_u8(*src, *pixel);

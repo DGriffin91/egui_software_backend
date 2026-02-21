@@ -12,9 +12,20 @@ impl NeonImpl {
     pub(crate) const unsafe fn new() -> Self {
         Self(())
     }
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    fn dispatch_neon<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
+    }
 }
 
 impl SelectedImpl for NeonImpl {
+    #[inline]
+    fn dispatch<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        unsafe { self.dispatch_neon(f) }
+    }
+
     #[inline]
     fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
         unsafe { egui_blend_u8_slice(src, dst) }

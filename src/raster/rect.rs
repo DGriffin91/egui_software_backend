@@ -13,6 +13,21 @@ pub fn draw_rect(
     #[constify] vert_uvs_vary: bool,
     #[constify] alpha_blend: bool,
 ) {
+    simd_impl.dispatch(|simd_impl| {
+        draw_rect_impl::<vert_col_vary, vert_uvs_vary, alpha_blend>(
+            simd_impl, buffer, texture, draw,
+        )
+    })
+}
+
+#[inline]
+#[allow(non_upper_case_globals)]
+fn draw_rect_impl<const vert_col_vary: bool, const vert_uvs_vary: bool, const alpha_blend: bool>(
+    simd_impl: impl SelectedImpl,
+    buffer: &mut BufferMutRef,
+    texture: &EguiTexture,
+    draw: &DrawInfo,
+) {
     let const_tri_color_u8x4 = draw.const_tri_color_u8x4;
     let clip_bounds = &draw.clip_bounds;
     let tri_min = draw.tri_min;

@@ -21,6 +21,26 @@ pub fn draw_tri<const SUBPIX_BITS: i32>(
     #[constify] vert_uvs_vary: bool,
     #[constify] alpha_blend: bool,
 ) {
+    simd_impl.dispatch(|simd_impl| {
+        draw_tri_impl::<SUBPIX_BITS, vert_col_vary, vert_uvs_vary, alpha_blend>(
+            simd_impl, buffer, texture, draw,
+        )
+    })
+}
+
+#[inline]
+#[allow(non_upper_case_globals)]
+fn draw_tri_impl<
+    const SUBPIX_BITS: i32,
+    const vert_col_vary: bool,
+    const vert_uvs_vary: bool,
+    const alpha_blend: bool,
+>(
+    simd_impl: impl SelectedImpl,
+    buffer: &mut BufferMutRef,
+    texture: &EguiTexture,
+    draw: &DrawInfo,
+) {
     let Some((ss_min, ss_max, sp_inv_area, mut stepper)) =
         SingleStepper::from_ss_tri_backface_cull::<SUBPIX_BITS>(draw.clip_bounds, &draw.ss_tri)
     else {

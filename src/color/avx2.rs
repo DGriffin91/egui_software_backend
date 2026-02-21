@@ -26,6 +26,12 @@ impl Avx2Impl {
 }
 
 impl Avx2Impl {
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    fn dispatch_avx2<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
+    }
+
     // https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
     /// dst[i] = blend(src[i], dst[i]) // As unorm
     /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
@@ -207,6 +213,11 @@ impl Avx2Impl {
 }
 
 impl SelectedImpl for Avx2Impl {
+    #[inline]
+    fn dispatch<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        unsafe { self.dispatch_avx2(f) }
+    }
+
     #[inline]
     fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
         unsafe { self.egui_blend_u8_slice_avx2(src, dst) }

@@ -5,16 +5,27 @@ use core::{arch::x86_64::*, ptr::read_unaligned};
 use crate::color::SelectedImpl;
 
 #[derive(Clone, Copy)]
-pub(crate) struct Sse41Impl(());
+pub struct Sse41Impl(());
 
 impl Sse41Impl {
     /// `std::arch::is_x86_feature_detected!("sse4.1")` MUST be true
-    pub(crate) const unsafe fn new() -> Self {
+    pub const unsafe fn new() -> Self {
         Self(())
+    }
+
+    #[inline]
+    #[target_feature(enable = "sse4.1")]
+    fn dispatch_sse41<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
     }
 }
 
 impl SelectedImpl for Sse41Impl {
+    #[inline]
+    fn dispatch<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        unsafe { self.dispatch_sse41(f) }
+    }
+
     #[inline]
     fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
         unsafe { egui_blend_u8_slice(src, dst) }
@@ -52,6 +63,7 @@ impl SelectedImpl for Sse41Impl {
 }
 
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
+#[inline]
 #[target_feature(enable = "sse4.1")]
 fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let alpha = src[3];
