@@ -307,9 +307,9 @@ fn unorm_mult4x4(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
 }
 
 #[inline]
-/// src8 is should have two 8 bit per channel rgba samples stored in the low bits
-/// src16 is should have two 16 bit per channel rgba samples
-/// dst16 is should have two 16 bit per channel rgba samples
+/// src8 should have two 8 bit per channel rgba samples stored in the low bits
+/// src16 should have two 16 bit per channel rgba samples
+/// dst16 should have two 16 bit per channel rgba samples
 #[target_feature(enable = "sse4.1")]
 fn egui_blend_two_u16x4(src8: __m128i, src16: __m128i, dst16: __m128i) -> __m128i {
     let ones = _mm_set1_epi16(0x00FF);

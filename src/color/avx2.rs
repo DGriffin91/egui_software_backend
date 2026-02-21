@@ -105,7 +105,7 @@ impl Avx2Impl {
             i += 4;
         }
 
-        // Tail: handle the last pixel (if any) in scalar
+        // Tail: handle the last pixels (if any) in scalar
         while i < n {
             dst[i] = self.egui_blend_u8(self.unorm_mult4x4(src, tint_fn()), dst[i]);
             i += 1;
@@ -145,7 +145,7 @@ impl Avx2Impl {
             i += 4;
         }
 
-        // Tail: handle the last pixel (if any) in scalar
+        // Tail: handle the last pixels (if any) in scalar
         while i < n {
             dst[i] = self.egui_blend_u8(self.unorm_mult4x4(src[i], tint), dst[i]);
             i += 1;
@@ -243,9 +243,9 @@ impl SelectedImpl for Avx2Impl {
     }
 }
 
-/// src_u8x4x4 is should have four 8 bit per channel rgba samples stored in the low bits
-/// src_u16x4x4 is should have four 16 bit per channel rgba samples
-/// dst_u16x4x4 is should have four 16 bit per channel rgba samples
+/// src_u8x4x4 should have four 8 bit per channel rgba samples stored in the low bits
+/// src_u16x4x4 should have four 16 bit per channel rgba samples
+/// dst_u16x4x4 should have four 16 bit per channel rgba samples
 #[inline]
 #[target_feature(enable = "avx2")]
 fn egui_blend_4_u16x4(src8: __m128i, src16: __m256i, dst16: __m256i) -> __m128i {
