@@ -1,10 +1,10 @@
 use crate::math::vec4::{Vec4, vec4};
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", feature = "std"))]
 pub(crate) mod avx2;
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", feature = "std"))]
 pub(crate) mod neon;
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", feature = "std"))]
 pub(crate) mod sse41;
 
 /// An available to run on this processor implementation
@@ -17,11 +17,11 @@ pub(crate) mod sse41;
 #[derive(Clone, Copy)]
 pub(crate) enum AvailableImpl {
     Generic(GenericImpl),
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     Sse41(sse41::Sse41Impl),
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     Avx2(avx2::Avx2Impl),
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", feature = "std"))]
     Neon(neon::NeonImpl),
 }
 
@@ -64,11 +64,11 @@ impl core::fmt::Display for AvailableImpl {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Generic(_) => f.write_str("Generic"),
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(all(target_arch = "x86_64", feature = "std"))]
             Self::Sse41(_) => f.write_str("Sse41"),
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(all(target_arch = "x86_64", feature = "std"))]
             Self::Avx2(_) => f.write_str("Avx2"),
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(all(target_arch = "aarch64", feature = "std"))]
             Self::Neon(_) => f.write_str("Neon"),
         }
     }
@@ -91,15 +91,15 @@ macro_rules! dispatch_simd_impl {
             $crate::color::AvailableImpl::Generic(i) => {
                 i.dispatch(|$simd_impl: $crate::color::GenericImpl| $body)
             }
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(all(target_arch = "x86_64", feature = "std"))]
             $crate::color::AvailableImpl::Sse41(i) => {
                 i.dispatch(|$simd_impl: $crate::color::sse41::Sse41Impl| $body)
             }
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(all(target_arch = "x86_64", feature = "std"))]
             $crate::color::AvailableImpl::Avx2(i) => {
                 i.dispatch(|$simd_impl: $crate::color::avx2::Avx2Impl| $body)
             }
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(all(target_arch = "aarch64", feature = "std"))]
             $crate::color::AvailableImpl::Neon(i) => {
                 i.dispatch(|$simd_impl: $crate::color::neon::NeonImpl| $body)
             }

@@ -25,34 +25,37 @@
 //!
 //! ## Usage with optional winit backend:
 //! ```rust
-//!use egui::vec2;
-//!use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
+//!#[cfg(all(feature = "std", feature = "winit"))]
+//!mod example {
+//!    use egui::vec2;
+//!    use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
 //!
-//!struct EguiApp {}
+//!    struct EguiApp {}
 //!
-//!impl EguiApp {
-//!    fn new(context: egui::Context) -> Self {
-//!        egui_extras::install_image_loaders(&context);
-//!        EguiApp {}
+//!    impl EguiApp {
+//!        fn new(context: egui::Context) -> Self {
+//!            egui_extras::install_image_loaders(&context);
+//!            EguiApp {}
+//!        }
 //!    }
-//!}
 //!
-//!impl egui_software_backend::App for EguiApp {
-//!    fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
-//!        egui::CentralPanel::default().show(ctx, |ui| {
-//!            ui.label("Hello World!");
-//!        });
+//!    impl egui_software_backend::App for EguiApp {
+//!        fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
+//!            egui::CentralPanel::default().show(ctx, |ui| {
+//!                ui.label("Hello World!");
+//!            });
+//!        }
 //!    }
-//!}
 //!
-//!fn main() {
-//!    let settings = SoftwareBackendAppConfiguration::new()
-//!        .inner_size(Some(vec2(500.0, 300.0)))
-//!        .title(Some("Simple example".to_string()));
+//!    fn main() {
+//!        let settings = SoftwareBackendAppConfiguration::new()
+//!            .inner_size(Some(vec2(500.0, 300.0)))
+//!            .title(Some("Simple example".to_string()));
 //!
-//!    egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
-//!        //Can fail if winit fails to create the window
-//!        .expect("Failed to run app")
+//!        egui_software_backend::run_app_with_software_backend(settings, EguiApp::new)
+//!            //Can fail if winit fails to create the window
+//!            .expect("Failed to run app")
+//!    }
 //!}
 //!```
 //!
@@ -202,7 +205,7 @@ impl EguiSoftwareRender {
     /// Renders the given paint jobs to buffer_ref. Alternatively, when using caching
     /// EguiSoftwareRender::render_to_canvas() and subsequently EguiSoftwareRender::blit_canvas_to_buffer() can be run
     /// separately so that the primary rendering in render_to_canvas() can happen without a lock on the frame buffer.
-    ///  
+    ///
     ///
     /// # Arguments
     /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.

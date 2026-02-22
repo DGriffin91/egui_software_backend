@@ -78,6 +78,27 @@ winit = ["dep:winit", "softbuffer", "egui-winit", "bytemuck"]
 # cargo test --features rayon,raster_stats
 # cargo deny check
 
+
+[[example]]
+name = "winit"
+path = "examples/winit.rs"
+required-features = ["std", "winit"]
+
+[[example]]
+name = "winit_hello"
+path = "examples/winit_hello.rs"
+required-features = ["std", "winit"]
+
+[[example]]
+name = "winit_viewport_test"
+path = "examples/winit_viewport_test.rs"
+required-features = ["std", "winit"]
+
+[[example]]
+name = "winit_raw"
+path = "examples/winit_raw.rs"
+required-features = ["std"]
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 
