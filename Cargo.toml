@@ -1,7 +1,7 @@
 [package]
 name = "egui_software_backend"
 description = "A CPU software render backend for egui."
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 homepage = "https://github.com/DGriffin91/egui_software_backend"
 repository = "https://github.com/DGriffin91/egui_software_backend"
@@ -70,6 +70,7 @@ winit = ["dep:winit", "softbuffer", "egui-winit", "bytemuck"]
 
 # Testing:
 # cargo test --features test_render
+# cargo test --features test_render,rayon
 # cargo test --all
 # cargo test --no-default-features
 # cargo test --all-features
