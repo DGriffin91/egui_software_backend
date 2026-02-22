@@ -67,6 +67,7 @@
 //!```
 //!
 
+#![allow(clippy::needless_doctest_main)]
 #![no_std]
 extern crate alloc;
 
@@ -395,6 +396,7 @@ impl EguiSoftwareRender {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn blit_tile(
         &self,
         simd_impl: impl SelectedImpl,

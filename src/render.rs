@@ -11,6 +11,7 @@ use crate::{
 };
 use egui::{Pos2, Vec2, ahash::HashMap, epaint::Vertex, vec2};
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
     simd_impl: AvailableImpl,
     textures: &HashMap<egui::TextureId, EguiTexture>,
