@@ -34,11 +34,6 @@ impl egui_software_backend::App for EguiApp {
                 });
             });
 
-            #[cfg(feature = "raster_stats")]
-            egui::Window::new("Stats").show(ctx, |ui| {
-                backend.stats.render(ui);
-            });
-
             if self.frame_times.len() < 100 {
                 self.frame_times
                     .push(backend.last_frame_time().unwrap_or_default().as_secs_f32());
