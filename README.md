@@ -59,5 +59,7 @@ fn main() {
 }
 ```
 
+[egui_backend_selector](https://github.com/AlexanderSchuetz97/egui_backend_selector) can be used in conjunction with this crate to automatically fallback to using this software renderer at runtime. 
+
 ## Other examples
 - bevy + softbuffer see examples/bevy_example folder
