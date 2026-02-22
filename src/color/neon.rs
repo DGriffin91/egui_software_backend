@@ -67,9 +67,6 @@ impl SelectedImpl for NeonImpl {
 #[target_feature(enable = "neon")]
 fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     let a = src[3];
-    if a == 255 {
-        return src;
-    }
 
     let alpha_compl = vdupq_n_u16((0xFFu16) ^ (a as u16));
     let e1 = vdupq_n_u16(0x0080);
