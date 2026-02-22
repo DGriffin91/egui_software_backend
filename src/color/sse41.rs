@@ -2,13 +2,71 @@
 
 use core::{arch::x86_64::*, ptr::read_unaligned};
 
-/// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
-#[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
-    let alpha = src[3];
-    if alpha == 255 {
-        return src;
+use crate::color::SelectedImpl;
+
+#[derive(Clone, Copy)]
+pub struct Sse41Impl(());
+
+impl Sse41Impl {
+    /// `std::arch::is_x86_feature_detected!("sse4.1")` MUST be true
+    pub const unsafe fn new() -> Self {
+        Self(())
     }
+
+    #[inline]
+    #[target_feature(enable = "sse4.1")]
+    fn dispatch_sse41<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
+    }
+}
+
+impl SelectedImpl for Sse41Impl {
+    #[inline]
+    fn dispatch<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        unsafe { self.dispatch_sse41(f) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice(self, src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
+        unsafe { egui_blend_u8_slice(src, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice_one_src_tinted_fn(
+        self,
+        src: [u8; 4],
+        tint_fn: impl FnMut() -> [u8; 4],
+        dst: &mut [[u8; 4]],
+    ) {
+        unsafe { egui_blend_u8_slice_one_src_tinted_fn(src, tint_fn, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice_tinted(self, src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8; 4]]) {
+        unsafe { egui_blend_u8_slice_tinted(src, tint, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8_slice_one_src(self, src: [u8; 4], dst: &mut [[u8; 4]]) {
+        unsafe { egui_blend_u8_slice_one_src(src, dst) }
+    }
+
+    #[inline]
+    fn egui_blend_u8(self, src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+        unsafe { egui_blend_u8(src, dst) }
+    }
+
+    #[inline]
+    fn unorm_mult4x4(self, a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
+        unsafe { unorm_mult4x4(a, b) }
+    }
+}
+
+/// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
+#[inline]
+#[target_feature(enable = "sse4.1")]
+fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+    let alpha = src[3];
 
     let alpha_compl = _mm_set1_epi16(0xFFi16 ^ (alpha as i16));
     let e1 = _mm_set1_epi16(0x0080);
@@ -34,7 +92,7 @@ pub fn egui_blend_u8(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
 // https://www.lgfae.com/posts/2025-09-01-AlphaBlendWithSIMD.html
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice_one_src(src: [u8; 4], dst: &mut [[u8; 4]]) {
+fn egui_blend_u8_slice_one_src(src: [u8; 4], dst: &mut [[u8; 4]]) {
     let n = dst.len();
     if n == 0 {
         return;
@@ -99,7 +157,7 @@ pub fn egui_blend_u8_slice_one_src(src: [u8; 4], dst: &mut [[u8; 4]]) {
 /// dst[i] = blend(src[i], dst[i]) // As unorm
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
+fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
     assert_eq!(src.len(), dst.len());
 
     let n = dst.len();
@@ -136,7 +194,7 @@ pub fn egui_blend_u8_slice(src: &[[u8; 4]], dst: &mut [[u8; 4]]) {
 /// dst[i] = blend(src[i] * vert, dst[i]) // As unorm
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice_tinted(src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8; 4]]) {
+fn egui_blend_u8_slice_tinted(src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8; 4]]) {
     assert_eq!(src.len(), dst.len());
     let n = dst.len();
     if n == 0 {
@@ -185,7 +243,7 @@ pub fn egui_blend_u8_slice_tinted(src: &[[u8; 4]], tint: [u8; 4], dst: &mut [[u8
 /// dst[i] = blend(src * tint_fn(), dst[i]) // As unorm
 /// blend fn is (ONE, ONE_MINUS_SRC_ALPHA)
 #[target_feature(enable = "sse4.1")]
-pub fn egui_blend_u8_slice_one_src_tinted_fn(
+fn egui_blend_u8_slice_one_src_tinted_fn(
     src: [u8; 4],
     mut tint_fn: impl FnMut() -> [u8; 4],
     dst: &mut [[u8; 4]],
@@ -258,9 +316,9 @@ fn unorm_mult4x4(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
 }
 
 #[inline]
-/// src8 is should have two 8 bit per channel rgba samples stored in the low bits
-/// src16 is should have two 16 bit per channel rgba samples
-/// dst16 is should have two 16 bit per channel rgba samples
+/// src8 should have two 8 bit per channel rgba samples stored in the low bits
+/// src16 should have two 16 bit per channel rgba samples
+/// dst16 should have two 16 bit per channel rgba samples
 #[target_feature(enable = "sse4.1")]
 fn egui_blend_two_u16x4(src8: __m128i, src16: __m128i, dst16: __m128i) -> __m128i {
     let ones = _mm_set1_epi16(0x00FF);
