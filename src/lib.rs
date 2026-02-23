@@ -699,9 +699,9 @@ impl EguiSoftwareRenderInner {
 
         for paint_job in paint_jobs {
             // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
-            let splat = 1.5f32;
+            let padding = 1.5f32;
             let (clip_rect, mesh_min, mesh_max, px_mesh) =
-                match self.prim_prepare_px_mesh(splat, pixels_per_point, paint_job) {
+                match self.prim_prepare_px_mesh(padding, pixels_per_point, paint_job) {
                     Some(x) => x,
                     None => continue,
                 };
@@ -822,9 +822,9 @@ impl EguiSoftwareRenderInner {
         F: Fn(&Self, CacheReuse, Vec2, Vec2, egui::Rect, Mesh) -> P + Sync + Send,
         P: DerefMut<Target = CacheReuse> + Sync + Send,
     {
-        let splat = 0.5f32;
+        let padding = 0.5f32;
         let (clip_rect, mesh_min, mesh_max, px_mesh) =
-            match self.prim_prepare_px_mesh(splat, pixels_per_point, paint_job) {
+            match self.prim_prepare_px_mesh(padding, pixels_per_point, paint_job) {
                 Some(x) => x,
                 None => return CacheUpdate::None,
             };
@@ -904,7 +904,7 @@ impl EguiSoftwareRenderInner {
 
     fn prim_prepare_px_mesh(
         &self,
-        splat: f32,
+        padding: f32,
         pixels_per_point: f32,
         egui::ClippedPrimitive {
             clip_rect,
@@ -924,7 +924,7 @@ impl EguiSoftwareRenderInner {
         }
         let clip_rect = egui::Rect {
             min: clip_rect.min * pixels_per_point,
-            max: clip_rect.max * pixels_per_point + egui::Vec2::splat(splat),
+            max: clip_rect.max * pixels_per_point + egui::Vec2::splat(padding),
         };
         let mut mesh_min = egui::Vec2::splat(f32::MAX);
         let mut mesh_max = egui::Vec2::splat(-f32::MAX);
