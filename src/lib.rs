@@ -17,7 +17,8 @@
 //!
 //!sw_render.render(
 //!    &mut buffer_ref,
-//!    &primitives,
+//!    /*redraw_everything_this_frame=*/true,
+//!    primitives,
 //!    &out.textures_delta,
 //!    out.pixels_per_point,
 //!);
