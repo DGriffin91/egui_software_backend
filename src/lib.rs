@@ -496,7 +496,7 @@ impl EguiSoftwareRenderInner {
     ) -> DirtyRect
     where
         F: Fn(&Self, CacheReuse, Vec2, Vec2, egui::Rect, Mesh) -> P + Sync + Send,
-        U: Fn(&mut Self, &HashMap<u32, P>),
+        U: Fn(&mut Self, DirtyRect, &HashMap<u32, P>),
         P: DerefMut<Target = CacheReuse> + Sync + Send,
     {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
@@ -530,10 +530,16 @@ impl EguiSoftwareRenderInner {
             f_render_prims_to_cache,
         );
 
-        let mut dirty_rect = self.update_dirty_rect(cached_primitives);
+        let canvas_rect = DirtyRect {
+            min_x: 0,
+            min_y: 0,
+            max_x: canvas.width,
+            max_y: canvas.height,
+        };
+        let mut dirty_rect = self.update_dirty_rect(canvas_rect, cached_primitives);
 
         if !dirty_rect.is_empty() {
-            f_update_dirty_tiles(self, cached_primitives);
+            f_update_dirty_tiles(self, canvas_rect, cached_primitives);
         }
 
         // clear_unused_cached_prims
@@ -688,6 +694,8 @@ impl EguiSoftwareRenderInner {
 
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
+
+        direct_draw_buffer.data.fill(Default::default()); // CLEAR
 
         for paint_job in paint_jobs {
             // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
@@ -1015,6 +1023,16 @@ impl EguiSoftwareRenderInner {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
 
+        match self.caching {
+            SoftwareRenderCaching::MeshTiled => {
+                for &dirty_rect in self.dirty_rects.iter() {
+                    direct_draw_buffer.clear_rect(dirty_rect)
+                }
+            }
+            SoftwareRenderCaching::Mesh => direct_draw_buffer.clear_rect(dirty_rect),
+            _ => unreachable!(),
+        }
+
         let mut sorted_prim_cache = cached_primitives.values().collect::<Vec<_>>();
         sorted_prim_cache.sort_unstable_by_key(|prim| prim.inner.z_order);
 
@@ -1174,7 +1192,11 @@ impl EguiSoftwareRenderInner {
 
     const DIRTY_TILE_MASK: u8 = 0b00000001;
     const OCCUPIED_TILE_MASK: u8 = 0b000000010;
-    fn update_dirty_tiles(&mut self, cached_primitives: &HashMap<u32, TiledCachedPrimitive>) {
+    fn update_dirty_tiles(
+        &mut self,
+        _canvas_rect: DirtyRect,
+        cached_primitives: &HashMap<u32, TiledCachedPrimitive>,
+    ) {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
 
@@ -1198,11 +1220,18 @@ impl EguiSoftwareRenderInner {
         }
     }
 
-    fn update_dirty_rects(&mut self, cached_primitives: &HashMap<u32, MeshCachedPrimitive>) {
+    /// Compute a non overlapping set of tiled dirty rect from changed primitives rects
+    /// that are within `canvas_rect` bounds
+    fn update_dirty_rects(
+        &mut self,
+        canvas_rect: DirtyRect,
+        cached_primitives: &HashMap<u32, MeshCachedPrimitive>,
+    ) {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
         if self.caching == SoftwareRenderCaching::MeshTiled {
             self.dirty_rects.set_bboxes(
+                canvas_rect,
                 cached_primitives
                     .values()
                     .filter(|prim| !prim.inner.seen_this_frame || prim.inner.rendered_this_frame)
@@ -1216,7 +1245,14 @@ impl EguiSoftwareRenderInner {
         }
     }
 
-    fn update_dirty_rect<P>(&mut self, cached_primitives: &HashMap<u32, P>) -> DirtyRect
+    /// Compute the dirty rect from changed primitives rects
+    ///
+    /// Returns a dirty rect that is within `canvas_rect` bounds
+    fn update_dirty_rect<P>(
+        &mut self,
+        canvas_rect: DirtyRect,
+        cached_primitives: &HashMap<u32, P>,
+    ) -> DirtyRect
     where
         P: Deref<Target = CacheReuse>,
     {
@@ -1227,10 +1263,12 @@ impl EguiSoftwareRenderInner {
         for prim in cached_primitives.values() {
             let prim = prim.deref();
             if !prim.seen_this_frame || prim.rendered_this_frame {
-                if dirty_rect.is_empty() {
-                    dirty_rect = prim.rect;
-                } else {
-                    dirty_rect = dirty_rect.union(prim.rect)
+                if let Some(prim_rect) = prim.rect.intersection(canvas_rect) {
+                    if dirty_rect.is_empty() {
+                        dirty_rect = prim_rect;
+                    } else {
+                        dirty_rect = dirty_rect.union(prim_rect)
+                    }
                 }
             }
         }
@@ -1532,6 +1570,16 @@ impl<'a> BufferMutRef<'a> {
     #[inline(always)]
     pub fn get_mut(&mut self, x: u32, y: u32) -> &mut [u8; 4] {
         &mut self.data[as_usize(x) + as_usize(y) * as_usize(self.width)]
+    }
+
+    #[inline]
+    pub fn clear_rect(&mut self, rect: DirtyRect) {
+        for y in rect.min_y..rect.max_y {
+            let row_start = y * self.width;
+            let start = row_start + rect.min_x;
+            let end = row_start + rect.max_x;
+            self.data[as_usize(start)..as_usize(end)].fill([0; 4]);
+        }
     }
 }
 

@@ -66,12 +66,16 @@ impl DirtyRect {
     }
 
     #[inline]
-    pub fn intersection(self, other: DirtyRect) -> Self {
-        Self {
-            min_x: self.min_x.max(other.min_x),
-            min_y: self.min_y.max(other.min_y),
-            max_x: self.max_x.min(other.max_x),
-            max_y: self.max_y.min(other.max_y),
+    pub fn intersection(self, other: DirtyRect) -> Option<Self> {
+        if self.intersects(other) {
+            Some(Self {
+                min_x: self.min_x.max(other.min_x),
+                min_y: self.min_y.max(other.min_y),
+                max_x: self.max_x.min(other.max_x),
+                max_y: self.max_y.min(other.max_y),
+            })
+        } else {
+            None
         }
     }
 
@@ -106,11 +110,12 @@ impl ComputeTiledDirtyRects {
     pub fn intersections(&self, other: DirtyRect) -> impl Iterator<Item = DirtyRect> + '_ {
         self.minimal_non_overlapping_bboxes
             .iter()
-            .filter(move |bbox| bbox.intersects(other))
-            .map(move |bbox| bbox.intersection(other))
+            .filter_map(move |bbox| bbox.intersection(other))
     }
 
-    pub fn set_bboxes(&mut self, boxes: impl Iterator<Item = DirtyRect>) {
+    /// Compute a non overlapping set of tiled dirty rect from `boxes` iterator
+    /// that are within `canvas_rect` bounds
+    pub fn set_bboxes(&mut self, canvas_rect: DirtyRect, boxes: impl Iterator<Item = DirtyRect>) {
         fn merge_intervals(intervals: &mut [(u32, u32)], mut f_yield: impl FnMut((u32, u32))) {
             if intervals.is_empty() {
                 return;
@@ -132,7 +137,11 @@ impl ComputeTiledDirtyRects {
 
         self.minimal_non_overlapping_bboxes.clear();
         self.bboxes.clear();
-        self.bboxes.extend(boxes.map(|b| b.tiled::<TILE_SIZE>()));
+        self.bboxes.extend(
+            boxes
+                .map(|b| b.tiled::<TILE_SIZE>())
+                .filter_map(|b| b.intersection(canvas_rect)),
+        );
         // Step 1: collect all unique y-coordinates
         self.ys.clear();
         self.ys
