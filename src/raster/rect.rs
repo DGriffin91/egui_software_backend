@@ -122,7 +122,7 @@ fn draw_rect_impl<const vert_col_vary: bool, const vert_uvs_vary: bool, const al
                 let buf_y = y * buffer.width;
                 for x in min_x..max_x {
                     let tex_color = texture.sample_bilinear(uv);
-                    let pixel = &mut buffer.data[as_usize(x) + as_usize(buf_y)];
+                    let pixel = &mut buffer.data[as_usize(x + buf_y)];
                     let src = simd_impl.unorm_mult4x4(draw.const_vert_color_u8x4, tex_color);
                     *pixel = simd_impl.egui_blend_u8(src, *pixel);
                     uv.x += uv_step.x;

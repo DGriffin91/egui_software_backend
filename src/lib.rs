@@ -599,7 +599,7 @@ impl EguiSoftwareRenderInner {
             // blit rows of tiles in parallel
 
             let width = buffer.width;
-            let px_per_row_of_tiles = as_usize(width) * as_usize(TILE_SIZE);
+            let px_per_row_of_tiles = as_usize(width * TILE_SIZE);
 
             buffer
                 .data
@@ -760,7 +760,7 @@ impl EguiSoftwareRenderInner {
         let (width, height) = (prim.rect.width(), prim.rect.height());
         let mut prim = TiledCachedPrimitive {
             inner: prim,
-            buffer: vec![[0u8; 4]; as_usize(width) * as_usize(height)],
+            buffer: vec![[0u8; 4]; as_usize(width * height)],
             occupied_tiles: Vec::with_capacity(64),
         };
         let mut buffer_ref = BufferMutRef {
@@ -1114,7 +1114,7 @@ impl EguiSoftwareRenderInner {
             let full_height = canvas.height;
 
             let width = canvas.width;
-            let px_per_row_of_tiles = as_usize(width) * as_usize(TILE_SIZE);
+            let px_per_row_of_tiles = as_usize(width * TILE_SIZE);
 
             canvas
                 .data
@@ -1505,7 +1505,7 @@ impl TiledCachedPrimitive {
                     for x in px_start_x..px_end_x {
                         // Purposefully panicing when out of bounds. If it's out of bounds then the math is wrong and
                         // the tile is not being calculated correctly.
-                        let offset = as_usize(x) + as_usize(y) * as_usize(width);
+                        let offset = as_usize(x + y * width);
                         if u32::from_le_bytes(self.buffer[offset]) > 0 {
                             self.occupied_tiles.push([tile_x as u16, tile_y as u16]);
                             break 'px_outer;
@@ -1564,12 +1564,12 @@ impl<'a> BufferMutRef<'a> {
     pub fn get_mut_clamped(&mut self, x: u32, y: u32) -> &mut [u8; 4] {
         let x = x.min(self.width_extent);
         let y = y.min(self.height_extent);
-        &mut self.data[as_usize(x) + as_usize(y) * as_usize(self.width)]
+        &mut self.data[as_usize(x + y * self.width)]
     }
 
     #[inline(always)]
     pub fn get_mut(&mut self, x: u32, y: u32) -> &mut [u8; 4] {
-        &mut self.data[as_usize(x) + as_usize(y) * as_usize(self.width)]
+        &mut self.data[as_usize(x + y * self.width)]
     }
 
     #[inline]
@@ -1606,12 +1606,12 @@ impl<'a> BufferRef<'a> {
     pub fn get_ref_clamped(&self, x: u32, y: u32) -> &[u8; 4] {
         let x = x.min(self.width_extent);
         let y = y.min(self.height_extent);
-        &self.data[as_usize(x) + as_usize(y) * as_usize(self.width)]
+        &self.data[as_usize(x + y * self.width)]
     }
 
     #[inline(always)]
     pub fn get_ref(&self, x: u32, y: u32) -> &[u8; 4] {
-        &self.data[as_usize(x) + as_usize(y) * as_usize(self.width)]
+        &self.data[as_usize(x + y * self.width)]
     }
 }
 
