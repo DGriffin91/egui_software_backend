@@ -115,7 +115,7 @@ fn draw_tri_impl<
                     } else {
                         draw.const_tri_color_u8x4
                     };
-                    let pixel = buffer.get_mut(ss_x as u32, ss_y as u32);
+                    let pixel = buffer.get_mut(ss_x, ss_y as u32);
                     *pixel = if alpha_blend {
                         simd_impl.egui_blend_u8(src, *pixel)
                     } else {
