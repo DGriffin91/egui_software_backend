@@ -1,4 +1,6 @@
-use crate::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching};
+use crate::{
+    BufferMutRef, BufferStates, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching,
+};
 use egui::{
     Context, CursorGrab, IconData, Pos2, SystemTheme, Vec2, ViewportBuilder, ViewportCommand,
     WindowLevel, X11WindowType,
@@ -143,6 +145,7 @@ struct RunningEguiAppState<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiA
     /////////////////// END OF DANGER ZONE//////////////////////////////////////
     config: SoftwareBackendAppConfiguration,
     last_frame_time: Option<Duration>,
+    buffer_states: BufferStates,
     renderer: EguiSoftwareRender,
     egui_app_factory: EguiAppFactory,
     softbuffer_context: softbuffer::Context<OwnedDisplayHandle>,
@@ -230,6 +233,7 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
             egui_app_factory: self.egui_app_factory,
             softbuffer_context: self.softbuffer_context,
             window: self.window,
+            buffer_states: BufferStates::new(),
             surface,
             egui_winit,
             egui_app,
@@ -698,17 +702,21 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                         .map_err(SoftwareBackendAppError::soft_buffer(
                             "softbuffer::Surface::buffer_mut",
                         ))?;
-
+                let age = buffer.age();
                 let buffer_ref = &mut BufferMutRef::new(
                     bytemuck::cast_slice_mut(&mut buffer),
                     width.get(),
                     height.get(),
                 );
-                let redraw_everything_this_frame =
-                    self.renderer.cached_size() != (buffer_ref.width, buffer_ref.height);
+                let buffer_state = self.buffer_states.next(age, buffer_ref.data.len());
+                if buffer_state.is_new_zeroed() {
+                    // age == 0 || resized
+                    buffer_ref.data.fill(Default::default());
+                }
+
                 let dirty_rect = self.renderer.render(
                     buffer_ref,
-                    redraw_everything_this_frame,
+                    buffer_state,
                     clipped_primitives,
                     &full_output.textures_delta,
                     full_output.pixels_per_point,

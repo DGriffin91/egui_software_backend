@@ -2,7 +2,7 @@
 //!
 //! ## Basic example usage:
 //! ```rust
-//!use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
+//!use egui_software_backend::{BufferMutRef, BufferState, ColorFieldOrder, EguiSoftwareRender};
 //!let buffer = &mut vec![[0u8; 4]; 512 * 512];
 //!let mut buffer_ref = BufferMutRef::new(buffer, 512, 512);
 //!let ctx = egui::Context::default();
@@ -17,7 +17,7 @@
 //!
 //!sw_render.render(
 //!    &mut buffer_ref,
-//!    /*redraw_everything_this_frame=*/true,
+//!    BufferState::AlwaysNewZeroed,
 //!    primitives,
 //!    &out.textures_delta,
 //!    out.pixels_per_point,
@@ -75,7 +75,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-use core::ops::{Deref, DerefMut, Range};
+use core::{
+    ops::{Deref, DerefMut, Range},
+    u8,
+};
 
 use alloc::{borrow::Cow, vec, vec::Vec};
 
@@ -165,7 +168,6 @@ pub enum SoftwareRenderCaching {
 }
 
 struct EguiSoftwareRenderInner {
-    cached_size: (u32, u32),
     textures: HashMap<egui::TextureId, EguiTexture>,
     /// Tiles grid size (cols, rows)
     tiles_dim: [u32; 2],
@@ -179,6 +181,120 @@ struct EguiSoftwareRenderInner {
     simd_impl: AvailableImpl,
     #[cfg(feature = "raster_stats")]
     pub stats: RenderStats,
+}
+
+/// Manage single, double and triple buffering buffer states
+pub struct BufferStates {
+    /// last frame
+    frame_1: (BufferState, usize),
+    /// last frame before that (for backends using double buffering).
+    frame_2: (BufferState, usize),
+    /// last frame before before that (for backends using triple buffering).
+    frame_3: (BufferState, usize),
+}
+
+impl BufferStates {
+    pub const fn new() -> Self {
+        Self {
+            frame_1: (BufferState::Buffer1Zeroed, 0),
+            frame_2: (BufferState::Buffer2Zeroed, 0),
+            frame_3: (BufferState::Buffer3Zeroed, 0),
+        }
+    }
+
+    /// Get the next buffer state
+    ///
+    /// * `age` is the number of frames ago this buffer was last presented (up to 3).
+    /// So if the value is 1, it is the same as the last frame,
+    /// and if it is 2, it is the same as the frame before that (for backends using double buffering),
+    /// and if it is 3, it is the same as the frame before before that (for backends using triple buffering),
+    /// If the value is 0, it is a new buffer.
+    ///
+    /// * `len` is the buffer size, if it differs the content will be marked as zeroed
+    ///
+    /// It's your responsability to ensure the provided buffer to `render` is zeroed if this returns
+    /// a zeroed variant!
+    pub fn next(&mut self, age: u8, buffer_len: usize) -> BufferState {
+        if cfg!(any(target_os = "macos", target_os = "android")) {
+            return BufferState::AlwaysZeroed;
+        }
+        if age == 1 {
+            // will present last frame
+        } else if age == 2 {
+            // will present last frame before that
+            // promote last frame before that to presenting one
+            core::mem::swap(&mut self.frame_1, &mut self.frame_2);
+        } else {
+            // will present last frame before before that
+            // promote last frame before before that to presenting one
+            core::mem::swap(&mut self.frame_1, &mut self.frame_3);
+            // promote last frame before that to last frame
+            core::mem::swap(&mut self.frame_2, &mut self.frame_3);
+        }
+        let (ret, len_1) = self.frame_1;
+        self.frame_1 = (ret.to_incremental(), buffer_len);
+        if age == 0 || buffer_len != len_1 {
+            ret.to_new_zeroed()
+        } else {
+            ret
+        }
+    }
+}
+
+/// Decribe the state of the provided buffer before rendering
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BufferState {
+    /// The provided buffer will always be a new buffer filled with zeroes
+    /// This allows the renderer to know when to cache the last frame itself
+    AlwaysZeroed,
+
+    /// A new Buffer identified as #1, filled with zeroes
+    Buffer1Zeroed,
+    /// Buffer identified as #1 that can be updated with changes since last render
+    Buffer1Incremental,
+
+    /// A new Buffer identified as #1, filled with zeroes
+    Buffer2Zeroed,
+    /// Buffer identified as #1 that can be updated with changes since last render
+    Buffer2Incremental,
+
+    /// A new Buffer identified as #1, filled with zeroes
+    Buffer3Zeroed,
+    /// Buffer identified as #1 that can be updated with changes since last render
+    Buffer3Incremental,
+}
+
+impl BufferState {
+    #[inline]
+    pub const fn is_new_zeroed(self) -> bool {
+        match self {
+            BufferState::AlwaysZeroed
+            | BufferState::Buffer1Zeroed
+            | BufferState::Buffer2Zeroed
+            | BufferState::Buffer3Zeroed => true,
+            BufferState::Buffer1Incremental
+            | BufferState::Buffer2Incremental
+            | BufferState::Buffer3Incremental => false,
+        }
+    }
+
+    pub fn to_incremental(self) -> Self {
+        match self {
+            Self::AlwaysZeroed => Self::AlwaysZeroed,
+            Self::Buffer1Zeroed | Self::Buffer1Incremental => Self::Buffer1Incremental,
+            Self::Buffer2Zeroed | Self::Buffer2Incremental => Self::Buffer2Incremental,
+            Self::Buffer3Zeroed | Self::Buffer3Incremental => Self::Buffer3Incremental,
+        }
+    }
+
+    pub fn to_new_zeroed(self) -> Self {
+        match self {
+            Self::AlwaysZeroed => Self::AlwaysZeroed,
+            Self::Buffer1Zeroed | Self::Buffer1Incremental => Self::Buffer1Zeroed,
+            Self::Buffer2Zeroed | Self::Buffer2Incremental => Self::Buffer2Zeroed,
+            Self::Buffer3Zeroed | Self::Buffer3Incremental => Self::Buffer3Zeroed,
+        }
+    }
 }
 
 /// Software render backend for egui.
@@ -235,14 +351,14 @@ impl EguiSoftwareRenderCanvas {
         if self.renderer.inner.caching == SoftwareRenderCaching::Direct {
             self.renderer.render(
                 buffer_ref,
-                true,
+                BufferState::AlwaysZeroed,
                 paint_jobs,
                 textures_delta,
                 pixels_per_point,
             );
         } else {
-            let redraw_everything_this_frame =
-                self.renderer.cached_size() != (buffer_ref.width, buffer_ref.height);
+            let len = as_usize(buffer_ref.width) * as_usize(buffer_ref.height);
+            let redraw_everything_this_frame = self.canvas.len() != len;
             if redraw_everything_this_frame {
                 self.canvas.clear();
                 let len = as_usize(buffer_ref.width) * as_usize(buffer_ref.height);
@@ -254,7 +370,11 @@ impl EguiSoftwareRenderCanvas {
                 BufferMutRef::new(&mut self.canvas, buffer_ref.width, buffer_ref.height);
             let dirty_rect = self.renderer.render(
                 &mut canvas,
-                redraw_everything_this_frame,
+                if redraw_everything_this_frame {
+                    BufferState::Buffer1Zeroed
+                } else {
+                    BufferState::Buffer1Incremental
+                },
                 paint_jobs,
                 textures_delta,
                 pixels_per_point,
@@ -281,7 +401,6 @@ impl EguiSoftwareRender {
             tiledcached_primitives: Default::default(),
             dirtycached_primitives: Default::default(),
             inner: EguiSoftwareRenderInner {
-                cached_size: (0, 0),
                 textures: Default::default(),
                 tiles_dim: Default::default(),
                 dirty_tiles: Default::default(),
@@ -360,11 +479,6 @@ impl EguiSoftwareRender {
         self.inner.dirty_rects = Default::default();
     }
 
-    /// The latest renderer `buffer_ref` width and height, if a cacheing mode is selected
-    pub const fn cached_size(&self) -> (u32, u32) {
-        self.inner.cached_size
-    }
-
     /// Renders the given paint jobs to buffer_ref. Alternatively, when using caching
     /// EguiSoftwareRender::render_to_canvas() and subsequently EguiSoftwareRender::blit_canvas_to_buffer() can be run
     /// separately so that the primary rendering in render_to_canvas() can happen without a lock on the frame buffer.
@@ -372,7 +486,7 @@ impl EguiSoftwareRender {
     ///
     /// # Arguments
     /// * `buffer_ref` - Buffer to render into.
-    /// * `redraw_everything_this_frame` - Redraw the whole buffer (ie. resize)
+    /// * `buffer_state` - Tell the render whats the current content of `buffer_ref`
     /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.
     /// * `paint_jobs` - List of `egui::ClippedPrimitive` from egui to be rendered.
     /// * `textures_delta` - The change in egui textures since last frame
@@ -388,7 +502,7 @@ impl EguiSoftwareRender {
     pub fn render(
         &mut self,
         buffer_ref: &mut BufferMutRef,
-        redraw_everything_this_frame: bool,
+        buffer_state: BufferState,
         paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
@@ -397,8 +511,13 @@ impl EguiSoftwareRender {
         self.inner.stats.clear();
         match self.inner.caching {
             SoftwareRenderCaching::Direct => {
-                self.inner
-                    .render_direct(buffer_ref, paint_jobs, textures_delta, pixels_per_point);
+                self.inner.render_direct(
+                    buffer_ref,
+                    buffer_state,
+                    paint_jobs,
+                    textures_delta,
+                    pixels_per_point,
+                );
                 DirtyRect {
                     min_x: 0,
                     min_y: 0,
@@ -409,14 +528,14 @@ impl EguiSoftwareRender {
             SoftwareRenderCaching::MeshTiled | SoftwareRenderCaching::Mesh => self
                 .render_meshmaybetiled(
                     buffer_ref,
-                    redraw_everything_this_frame,
+                    buffer_state,
                     paint_jobs,
                     textures_delta,
                     pixels_per_point,
                 ),
             SoftwareRenderCaching::BlendTiled => self.render_blendtiled(
                 buffer_ref,
-                redraw_everything_this_frame,
+                buffer_state,
                 paint_jobs,
                 textures_delta,
                 pixels_per_point,
@@ -426,43 +545,39 @@ impl EguiSoftwareRender {
 
     fn render_blendtiled(
         &mut self,
-        canvas: &mut BufferMutRef,
-        redraw_everything_this_frame: bool,
+        buffer_ref: &mut BufferMutRef,
+        buffer_state: BufferState,
         paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> DirtyRect {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
 
-        let dirty_rect = self.inner.prepare_render_cache(
+        let dirty_rect = self.inner.render_tiled_impl(
             &mut self.tiledcached_primitives,
-            canvas,
-            redraw_everything_this_frame,
+            buffer_ref,
+            buffer_state,
             paint_jobs,
             textures_delta,
             pixels_per_point,
             EguiSoftwareRenderInner::render_prim,
             EguiSoftwareRenderInner::update_dirty_tiles,
+            EguiSoftwareRenderInner::render_from_tiledcache,
         );
-
-        if !dirty_rect.is_empty() {
-            self.inner
-                .render_from_tiledcache(&self.tiledcached_primitives, canvas);
-        }
         dirty_rect
     }
     fn render_meshmaybetiled(
         &mut self,
-        canvas: &mut BufferMutRef,
-        redraw_everything_this_frame: bool,
+        buffer_ref: &mut BufferMutRef,
+        buffer_state: BufferState,
         paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> DirtyRect {
-        let dirty_rect = self.inner.prepare_render_cache(
+        self.inner.render_tiled_impl(
             &mut self.dirtycached_primitives,
-            canvas,
-            redraw_everything_this_frame,
+            buffer_ref,
+            buffer_state,
             paint_jobs,
             textures_delta,
             pixels_per_point,
@@ -472,59 +587,61 @@ impl EguiSoftwareRender {
                 clip_rect,
             },
             EguiSoftwareRenderInner::update_dirty_rects,
-        );
-        if !dirty_rect.is_empty() {
-            self.inner
-                .render_from_meshcache(&self.dirtycached_primitives, canvas, dirty_rect);
-        }
-        dirty_rect
+            EguiSoftwareRenderInner::render_from_meshcache,
+        )
     }
 }
 
 impl EguiSoftwareRenderInner {
     #[allow(clippy::too_many_arguments)]
-    fn prepare_render_cache<F, U, P>(
+    fn render_tiled_impl<P, F, U, R>(
         &mut self,
         cached_primitives: &mut HashMap<u32, P>,
-        canvas: &mut BufferMutRef,
-        redraw_everything_this_frame: bool,
+        buffer_ref: &mut BufferMutRef,
+        buffer_state: BufferState,
         paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
         f_render_prims_to_cache: F,
         f_update_dirty_tiles: U,
+        f_render: R,
     ) -> DirtyRect
     where
-        F: Fn(&Self, CacheReuse, Vec2, Vec2, egui::Rect, Mesh) -> P + Sync + Send,
-        U: Fn(&mut Self, DirtyRect, &HashMap<u32, P>),
         P: DerefMut<Target = CacheReuse> + Sync + Send,
+        F: Fn(&Self, CacheReuse, Vec2, Vec2, egui::Rect, Mesh) -> P + Sync + Send,
+        U: Fn(&mut Self, BufferStateFlag, DirtyRect, &HashMap<u32, P>),
+        R: Fn(&Self, &[&P], &mut BufferMutRef, DirtyRect, bool),
     {
         // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
 
-        assert!(canvas.width > 0);
-        assert!(canvas.height > 0);
+        assert!(buffer_ref.width > 0);
+        assert!(buffer_ref.height > 0);
         assert!(pixels_per_point > 0.0);
 
+        let buffer_state_flag = buffer_state.as_flag();
+        let redraw_everything_this_frame = buffer_state.is_new_zeroed();
         if redraw_everything_this_frame {
-            cached_primitives.clear();
+            for (_hash, prim) in cached_primitives.iter_mut() {
+                prim.seen_this_or_last_frame = prim.seen_this_frame.unmarked(buffer_state_flag);
+                prim.seen_this_frame.unmark(buffer_state_flag);
+            }
         } else {
-            assert_eq!(self.cached_size, (canvas.width, canvas.height));
-        }
-        self.cached_size = (canvas.width, canvas.height);
-
-        for (_hash, prim) in cached_primitives.iter_mut() {
-            prim.deref_mut().seen_this_frame = false;
+            for (_hash, prim) in cached_primitives.iter_mut() {
+                prim.seen_this_or_last_frame = prim.seen_this_frame;
+                prim.seen_this_frame.unmark(buffer_state_flag);
+            }
         }
 
         self.tiles_dim = [
-            canvas.width.div_ceil(TILE_SIZE),
-            canvas.height.div_ceil(TILE_SIZE),
+            buffer_ref.width.div_ceil(TILE_SIZE),
+            buffer_ref.height.div_ceil(TILE_SIZE),
         ];
 
         self.set_textures(textures_delta);
 
         self.render_prims_to_cache(
             cached_primitives,
+            buffer_state_flag,
             paint_jobs,
             pixels_per_point,
             f_render_prims_to_cache,
@@ -533,28 +650,45 @@ impl EguiSoftwareRenderInner {
         let canvas_rect = DirtyRect {
             min_x: 0,
             min_y: 0,
-            max_x: canvas.width,
-            max_y: canvas.height,
+            max_x: buffer_ref.width,
+            max_y: buffer_ref.height,
         };
-        let mut dirty_rect = self.update_dirty_rect(canvas_rect, cached_primitives);
+        let mut dirty_rect =
+            self.update_dirty_rect(buffer_state_flag, canvas_rect, cached_primitives);
 
         if !dirty_rect.is_empty() {
-            f_update_dirty_tiles(self, canvas_rect, cached_primitives);
+            f_update_dirty_tiles(self, buffer_state_flag, canvas_rect, cached_primitives);
         }
 
         // clear_unused_cached_prims
-        cached_primitives.retain(|_hash, prim| prim.deref().seen_this_frame);
+        cached_primitives.retain(|_hash, prim| !prim.seen_this_frame.all_false());
 
         if redraw_everything_this_frame {
             dirty_rect = DirtyRect {
                 min_x: 0,
                 min_y: 0,
-                max_x: canvas.width,
-                max_y: canvas.height,
+                max_x: buffer_ref.width,
+                max_y: buffer_ref.height,
             };
         }
 
         self.free_textures(textures_delta);
+
+        if !dirty_rect.is_empty() {
+            let mut sorted_prim_cache = cached_primitives
+                .values()
+                .filter(|c| c.seen_this_frame.is_true(buffer_state_flag))
+                .collect::<Vec<_>>();
+            sorted_prim_cache.sort_unstable_by_key(|prim| prim.z_order);
+            f_render(
+                self,
+                &sorted_prim_cache,
+                buffer_ref,
+                dirty_rect,
+                buffer_state.is_new_zeroed(),
+            );
+        }
+
         dirty_rect
     }
 
@@ -686,6 +820,7 @@ impl EguiSoftwareRenderInner {
     fn render_direct(
         &mut self,
         direct_draw_buffer: &mut BufferMutRef,
+        buffer_state: BufferState,
         paint_jobs: Vec<egui::ClippedPrimitive>,
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
@@ -695,7 +830,9 @@ impl EguiSoftwareRenderInner {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
 
-        direct_draw_buffer.data.fill(Default::default()); // CLEAR
+        if !buffer_state.is_new_zeroed() {
+            direct_draw_buffer.data.fill(Default::default()); // CLEAR
+        }
 
         for paint_job in paint_jobs {
             // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
@@ -813,6 +950,7 @@ impl EguiSoftwareRenderInner {
     fn prim_prepare_update<F, P>(
         &self,
         cached_primitives: &HashMap<u32, P>,
+        buffer_state_flag: BufferStateFlag,
         pixels_per_point: f32,
         prim_idx: u32,
         paint_job: egui::ClippedPrimitive,
@@ -869,16 +1007,22 @@ impl EguiSoftwareRenderInner {
             max_x: cropped_min.x as u32 + width,
             max_y: cropped_min.y as u32 + height,
         };
-        if cached_primitives.contains_key(&hash) {
-            CacheUpdate::CacheReuse(
-                hash,
-                CacheReuse {
-                    z_order: prim_idx,
-                    rect,
-                    seen_this_frame: true,
-                    rendered_this_frame: false,
+
+        if let Some(cached) = cached_primitives.get(&hash) {
+            let prim = CacheReuse {
+                z_order: prim_idx,
+                rect,
+                seen_this_frame: cached.seen_this_frame.marked(buffer_state_flag),
+                seen_this_or_last_frame: cached.seen_this_or_last_frame.marked(buffer_state_flag),
+                rendered_this_frame: {
+                    if cached.seen_this_or_last_frame.is_true(buffer_state_flag) {
+                        cached.rendered_this_frame.unmarked(buffer_state_flag)
+                    } else {
+                        cached.rendered_this_frame.marked(buffer_state_flag)
+                    }
                 },
-            )
+            };
+            CacheUpdate::CacheReuse(hash, prim)
         } else {
             if width > 8192 || height > 8192 {
                 // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
@@ -892,8 +1036,9 @@ impl EguiSoftwareRenderInner {
             let prim = CacheReuse {
                 z_order: prim_idx,
                 rect,
-                seen_this_frame: true,
-                rendered_this_frame: true,
+                seen_this_frame: BufferFlags::new().marked(buffer_state_flag),
+                seen_this_or_last_frame: BufferFlags::new().marked(buffer_state_flag),
+                rendered_this_frame: BufferFlags::new().marked(buffer_state_flag),
             };
             CacheUpdate::New(
                 hash,
@@ -967,6 +1112,7 @@ impl EguiSoftwareRenderInner {
     fn render_prims_to_cache<F, P>(
         &self,
         cached_primitives: &mut HashMap<u32, P>,
+        buffer_state_flag: BufferStateFlag,
         paint_jobs: Vec<egui::ClippedPrimitive>,
         pixels_per_point: f32,
         f: F,
@@ -988,6 +1134,7 @@ impl EguiSoftwareRenderInner {
             .map(|(prim_idx, paint_job)| {
                 self.prim_prepare_update(
                     cached_primitives,
+                    buffer_state_flag,
                     pixels_per_point,
                     prim_idx as u32,
                     paint_job,
@@ -998,9 +1145,8 @@ impl EguiSoftwareRenderInner {
 
         updates.into_iter().for_each(|update| match update {
             CacheUpdate::CacheReuse(hash, cache_reuse) => {
-                if let Some(cached_primitive) = cached_primitives.get_mut(&hash) {
-                    *cached_primitive.deref_mut() = cache_reuse;
-                }
+                let cached_primitive = cached_primitives.get_mut(&hash).expect("existing hash");
+                *cached_primitive.deref_mut() = cache_reuse;
             }
             CacheUpdate::New(hash, prim) => {
                 cached_primitives.insert(hash, prim);
@@ -1016,25 +1162,25 @@ impl EguiSoftwareRenderInner {
 
     fn render_from_meshcache(
         &self,
-        cached_primitives: &HashMap<u32, MeshCachedPrimitive>,
+        sorted_prim_cache: &[&MeshCachedPrimitive],
         direct_draw_buffer: &mut BufferMutRef,
         dirty_rect: DirtyRect,
+        is_new_zeroed: bool,
     ) {
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
 
-        match self.caching {
-            SoftwareRenderCaching::MeshTiled => {
-                for &dirty_rect in self.dirty_rects.iter() {
-                    direct_draw_buffer.clear_rect(dirty_rect)
+        if !is_new_zeroed {
+            match self.caching {
+                SoftwareRenderCaching::MeshTiled => {
+                    for &dirty_rect in self.dirty_rects.iter() {
+                        direct_draw_buffer.clear_rect(dirty_rect)
+                    }
                 }
+                SoftwareRenderCaching::Mesh => direct_draw_buffer.clear_rect(dirty_rect),
+                _ => unreachable!(),
             }
-            SoftwareRenderCaching::Mesh => direct_draw_buffer.clear_rect(dirty_rect),
-            _ => unreachable!(),
         }
-
-        let mut sorted_prim_cache = cached_primitives.values().collect::<Vec<_>>();
-        sorted_prim_cache.sort_unstable_by_key(|prim| prim.inner.z_order);
 
         let mut render_from_meshcache_prim = |prim: &MeshCachedPrimitive, dirty_rect: DirtyRect| {
             let clip_rect = prim.clip_rect.intersect(dirty_rect.to_egui_rect());
@@ -1071,14 +1217,14 @@ impl EguiSoftwareRenderInner {
 
         match self.caching {
             SoftwareRenderCaching::MeshTiled => {
-                for &prim in &sorted_prim_cache {
+                for &prim in sorted_prim_cache {
                     for dirty_rect in self.dirty_rects.intersections(prim.rect) {
                         render_from_meshcache_prim(prim, dirty_rect);
                     }
                 }
             }
             SoftwareRenderCaching::Mesh => {
-                for &prim in &sorted_prim_cache {
+                for &prim in sorted_prim_cache {
                     render_from_meshcache_prim(prim, dirty_rect);
                 }
             }
@@ -1092,16 +1238,15 @@ impl EguiSoftwareRenderInner {
     }
 
     fn render_from_tiledcache(
-        &mut self,
-        cached_primitives: &HashMap<u32, TiledCachedPrimitive>,
+        &self,
+        sorted_prim_cache: &[&TiledCachedPrimitive],
         canvas: &mut BufferMutRef,
+        _dirty_rect: DirtyRect,
+        is_new_zeroed: bool,
     ) {
         let simd_impl = self.simd_impl;
         #[cfg(feature = "raster_stats")]
         let start = std::time::Instant::now();
-
-        let mut sorted_prim_cache = cached_primitives.values().collect::<Vec<_>>();
-        sorted_prim_cache.sort_unstable_by_key(|prim| prim.inner.z_order);
 
         #[cfg(feature = "rayon")]
         {
@@ -1154,6 +1299,7 @@ impl EguiSoftwareRenderInner {
                                 tile_y,
                                 full_height,
                                 canvas_row_offset,
+                                is_new_zeroed,
                             );
                         });
                 });
@@ -1174,12 +1320,13 @@ impl EguiSoftwareRenderInner {
                 let full_height = canvas.height;
                 update_canvas_tile(
                     simd_impl,
-                    &sorted_prim_cache,
+                    sorted_prim_cache,
                     canvas,
                     tile_x,
                     tile_y,
                     full_height,
                     0,
+                    is_new_zeroed,
                 );
             }
         }
@@ -1194,6 +1341,7 @@ impl EguiSoftwareRenderInner {
     const OCCUPIED_TILE_MASK: u8 = 0b000000010;
     fn update_dirty_tiles(
         &mut self,
+        buffer_state_flag: BufferStateFlag,
         _canvas_rect: DirtyRect,
         cached_primitives: &HashMap<u32, TiledCachedPrimitive>,
     ) {
@@ -1203,11 +1351,16 @@ impl EguiSoftwareRenderInner {
         self.dirty_tiles
             .resize(as_usize(self.tiles_dim[0] * self.tiles_dim[1]), 0);
         self.dirty_tiles.fill(0);
-        for prim in cached_primitives.values() {
+        for prim in cached_primitives
+            .values()
+            .filter(|prim| prim.seen_this_or_last_frame.is_true(buffer_state_flag))
+        {
             for tile in &prim.occupied_tiles {
                 let mask = &mut self.dirty_tiles
                     [tile[0] as usize + tile[1] as usize * self.tiles_dim[0] as usize];
-                if !prim.inner.seen_this_frame || prim.inner.rendered_this_frame {
+                if !prim.inner.seen_this_frame.is_true(buffer_state_flag)
+                    || prim.inner.rendered_this_frame.is_true(buffer_state_flag)
+                {
                     *mask |= Self::DIRTY_TILE_MASK;
                 }
                 *mask |= Self::OCCUPIED_TILE_MASK;
@@ -1224,6 +1377,7 @@ impl EguiSoftwareRenderInner {
     /// that are within `canvas_rect` bounds
     fn update_dirty_rects(
         &mut self,
+        buffer_state_flag: BufferStateFlag,
         canvas_rect: DirtyRect,
         cached_primitives: &HashMap<u32, MeshCachedPrimitive>,
     ) {
@@ -1234,7 +1388,7 @@ impl EguiSoftwareRenderInner {
                 canvas_rect,
                 cached_primitives
                     .values()
-                    .filter(|prim| !prim.inner.seen_this_frame || prim.inner.rendered_this_frame)
+                    .filter(|prim| prim.changed_this_frame(buffer_state_flag))
                     .map(|prim| prim.rect),
             );
         }
@@ -1250,6 +1404,7 @@ impl EguiSoftwareRenderInner {
     /// Returns a dirty rect that is within `canvas_rect` bounds
     fn update_dirty_rect<P>(
         &mut self,
+        buffer_state_flag: BufferStateFlag,
         canvas_rect: DirtyRect,
         cached_primitives: &HashMap<u32, P>,
     ) -> DirtyRect
@@ -1260,15 +1415,15 @@ impl EguiSoftwareRenderInner {
         let start = std::time::Instant::now();
 
         let mut dirty_rect = DirtyRect::new_empty();
-        for prim in cached_primitives.values() {
-            let prim = prim.deref();
-            if !prim.seen_this_frame || prim.rendered_this_frame {
-                if let Some(prim_rect) = prim.rect.intersection(canvas_rect) {
-                    if dirty_rect.is_empty() {
-                        dirty_rect = prim_rect;
-                    } else {
-                        dirty_rect = dirty_rect.union(prim_rect)
-                    }
+        for prim in cached_primitives
+            .values()
+            .filter(|prim| prim.changed_this_frame(buffer_state_flag))
+        {
+            if let Some(prim_rect) = prim.rect.intersection(canvas_rect) {
+                if dirty_rect.is_empty() {
+                    dirty_rect = prim_rect;
+                } else {
+                    dirty_rect = dirty_rect.union(prim_rect)
                 }
             }
         }
@@ -1343,6 +1498,7 @@ fn update_canvas_tile(
     tile_y: u32,
     full_height: u32,
     canvas_row_offset: u32,
+    is_new_zeroed: bool,
 ) {
     let tile_x_start = tile_x * TILE_SIZE;
     let tile_y_start = tile_y * TILE_SIZE;
@@ -1350,11 +1506,13 @@ fn update_canvas_tile(
     let tile_y_end = (tile_y_start + TILE_SIZE).min(full_height);
 
     // clear tile
-    for y in (tile_y_start - canvas_row_offset)..(tile_y_end - canvas_row_offset) {
-        let row_start = y * canvas.width;
-        let start = row_start + tile_x_start;
-        let end = row_start + tile_x_end;
-        canvas.data[as_usize(start)..as_usize(end)].fill([0; 4]);
+    if !is_new_zeroed {
+        canvas.clear_rect(DirtyRect {
+            min_x: tile_x_start,
+            min_y: (tile_y_start - canvas_row_offset),
+            max_x: tile_x_end,
+            max_y: (tile_y_end - canvas_row_offset),
+        });
     }
 
     let tile_n = [tile_x as u16, tile_y as u16];
@@ -1417,12 +1575,80 @@ enum CacheUpdate<P> {
     None,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct BufferFlags {
+    flags: u8, // up to Buffer #8
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BufferStateFlag {
+    flag: u8,
+}
+
+impl BufferState {
+    #[inline(always)]
+    const fn as_flag(self) -> BufferStateFlag {
+        BufferStateFlag {
+            flag: match self {
+                BufferState::AlwaysZeroed => 1,
+                BufferState::Buffer1Zeroed | BufferState::Buffer1Incremental => 1,
+                BufferState::Buffer2Zeroed | BufferState::Buffer2Incremental => 2,
+                BufferState::Buffer3Zeroed | BufferState::Buffer3Incremental => 4,
+            },
+        }
+    }
+}
+
+impl BufferFlags {
+    #[inline(always)]
+    const fn new() -> Self {
+        Self { flags: 0 }
+    }
+
+    #[inline(always)]
+    const fn all_false(&self) -> bool {
+        self.flags == 0
+    }
+
+    #[inline(always)]
+    const fn is_true(&self, buffer_state: BufferStateFlag) -> bool {
+        self.flags & buffer_state.flag != 0
+    }
+
+    #[inline(always)]
+    const fn unmark(&mut self, buffer_state: BufferStateFlag) {
+        self.flags &= !buffer_state.flag;
+    }
+
+    #[inline(always)]
+    const fn marked(self, buffer_state: BufferStateFlag) -> Self {
+        Self {
+            flags: self.flags | buffer_state.flag,
+        }
+    }
+    #[inline(always)]
+    const fn unmarked(self, buffer_state: BufferStateFlag) -> Self {
+        Self {
+            flags: self.flags & !buffer_state.flag,
+        }
+    }
+}
+
 /// Common fields to both cached rendering modes
 struct CacheReuse {
     z_order: u32,
     rect: DirtyRect,
-    seen_this_frame: bool,
-    rendered_this_frame: bool,
+    seen_this_or_last_frame: BufferFlags,
+    seen_this_frame: BufferFlags,
+    rendered_this_frame: BufferFlags,
+}
+
+impl CacheReuse {
+    const fn changed_this_frame(&self, buffer_state_flag: BufferStateFlag) -> bool {
+        self.seen_this_or_last_frame.is_true(buffer_state_flag)
+            && (!self.seen_this_frame.is_true(buffer_state_flag)
+                || self.rendered_this_frame.is_true(buffer_state_flag))
+    }
 }
 
 /// A region of cached mesh data that corresponds to a ClippedPrimitive.
@@ -1649,5 +1875,100 @@ fn draw_rect_border_f32(
             set_pixel(x0 + dx, y0 + py); // left
             set_pixel(x1.saturating_sub(1) - dx, y0 + py); // right
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ages_up_to_1() {
+        let mut ages = BufferStates::new();
+        if cfg!(any(target_os = "macos", target_os = "android")) {
+            assert_eq!(ages.next(0, 10), BufferState::AlwaysZeroed);
+            return;
+        }
+        assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer2Zeroed);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer1Zeroed);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(1, 10), BufferState::Buffer3Incremental);
+    }
+
+    #[test]
+    fn ages_up_to_2() {
+        let mut ages = BufferStates::new();
+        if cfg!(any(target_os = "macos", target_os = "android")) {
+            assert_eq!(ages.next(0, 10), BufferState::AlwaysZeroed);
+            return;
+        }
+        assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer2Zeroed);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer2Incremental);
+
+        assert_eq!(ages.next(0, 10), BufferState::Buffer1Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer3Incremental);
+
+        assert_eq!(ages.next(0, 10), BufferState::Buffer2Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer1Zeroed);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(2, 10), BufferState::Buffer1Incremental);
+    }
+
+    #[test]
+    fn ages_up_to_3() {
+        let mut ages = BufferStates::new();
+        if cfg!(any(target_os = "macos", target_os = "android")) {
+            assert_eq!(ages.next(0, 10), BufferState::AlwaysZeroed);
+            return;
+        }
+        assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer2Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer1Zeroed);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer1Incremental);
+
+        assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer2Zeroed);
+        assert_eq!(ages.next(0, 10), BufferState::Buffer1Zeroed);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer1Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer3Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer2Incremental);
+        assert_eq!(ages.next(3, 10), BufferState::Buffer1Incremental);
     }
 }

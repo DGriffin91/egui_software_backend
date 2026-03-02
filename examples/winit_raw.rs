@@ -52,6 +52,7 @@ fn main() {
         } else {
             egui_software_backend::SoftwareRenderCaching::BlendTiled
         });
+    let mut buffer_states = egui_software_backend::BufferStates::new();
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -152,17 +153,21 @@ fn main() {
                         .tessellate(full_output.shapes, full_output.pixels_per_point);
 
                     let mut buffer = app.surface.buffer_mut().unwrap();
-
+                    let age = buffer.age();
                     let buffer_ref = &mut BufferMutRef::new(
                         bytemuck::cast_slice_mut(&mut buffer),
                         width,
                         height,
                     );
-                    let redraw_everything_this_frame =
-                        egui_software_render.cached_size() != (buffer_ref.width, buffer_ref.height);
+                    let buffer_state = buffer_states.next(age, buffer_ref.data.len());
+                    if buffer_state.is_new_zeroed() {
+                        // age == 0 || resized
+                        buffer_ref.data.fill(Default::default());
+                    }
+
                     let dirty_rect = egui_software_render.render(
                         buffer_ref,
-                        redraw_everything_this_frame,
+                        buffer_state,
                         clipped_primitives,
                         &full_output.textures_delta,
                         full_output.pixels_per_point,
