@@ -444,7 +444,7 @@ impl EguiSoftwareRender {
         );
         let mut internal_canvas = use_internal_buffer.then(|| {
             let len = as_usize(buffer_ref.width * buffer_ref.height);
-            let mut canvas = std::mem::take(&mut self.canvas);
+            let mut canvas = core::mem::take(&mut self.canvas);
             //^ take the canvas so we can satisfy borrow checker without another struct
             let redraw_everything_this_frame = canvas.len() != len;
             if redraw_everything_this_frame {
