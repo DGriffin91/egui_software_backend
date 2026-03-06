@@ -23,15 +23,15 @@ impl EguiApp {
     }
 
     fn ui(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |_ui| {
-            self.demo.ui(ctx);
+        //egui::CentralPanel::default().show(ctx, |_ui| {
+        self.demo.ui(ctx);
 
-            egui::Window::new("Color Test").show(ctx, |ui| {
-                egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-                    self.color_test.ui(ui);
-                });
+        egui::Window::new("Color Test").show(ctx, |ui| {
+            egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+                self.color_test.ui(ui);
             });
         });
+        //});
     }
 }
 

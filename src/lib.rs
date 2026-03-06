@@ -75,10 +75,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-use core::{
-    ops::{Deref, DerefMut, Range},
-    u8,
-};
+use core::ops::{Deref, DerefMut, Range};
 
 use alloc::{borrow::Cow, vec, vec::Vec};
 
@@ -193,6 +190,12 @@ pub struct BufferStates {
     frame_3: (BufferState, usize),
 }
 
+impl Default for BufferStates {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BufferStates {
     pub const fn new() -> Self {
         Self {
@@ -205,10 +208,10 @@ impl BufferStates {
     /// Get the next buffer state
     ///
     /// * `age` is the number of frames ago this buffer was last presented (up to 3).
-    /// So if the value is 1, it is the same as the last frame,
-    /// and if it is 2, it is the same as the frame before that (for backends using double buffering),
-    /// and if it is 3, it is the same as the frame before before that (for backends using triple buffering),
-    /// If the value is 0, it is a new buffer.
+    ///   So if the value is 1, it is the same as the last frame,
+    ///   and if it is 2, it is the same as the frame before that (for backends using double buffering),
+    ///   and if it is 3, it is the same as the frame before before that (for backends using triple buffering),
+    ///   If the value is 0, it is a new buffer.
     ///
     /// * `len` is the buffer size, if it differs the content will be marked as zeroed
     ///
@@ -551,9 +554,7 @@ impl EguiSoftwareRender {
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> DirtyRect {
-        // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
-
-        let dirty_rect = self.inner.render_tiled_impl(
+        self.inner.render_tiled_impl(
             &mut self.tiledcached_primitives,
             buffer_ref,
             buffer_state,
@@ -563,8 +564,7 @@ impl EguiSoftwareRender {
             EguiSoftwareRenderInner::render_prim,
             EguiSoftwareRenderInner::update_dirty_tiles,
             EguiSoftwareRenderInner::render_from_tiledcache,
-        );
-        dirty_rect
+        )
     }
     fn render_meshmaybetiled(
         &mut self,
@@ -612,8 +612,6 @@ impl EguiSoftwareRenderInner {
         U: Fn(&mut Self, BufferStateFlag, DirtyRect, &HashMap<u32, P>),
         R: Fn(&Self, &[&P], &mut BufferMutRef, DirtyRect, bool),
     {
-        // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
-
         assert!(buffer_ref.width > 0);
         assert!(buffer_ref.height > 0);
         assert!(pixels_per_point > 0.0);
@@ -637,6 +635,7 @@ impl EguiSoftwareRenderInner {
             buffer_ref.height.div_ceil(TILE_SIZE),
         ];
 
+        // TODO: need to deal with user textures. Either make the fields of EguiUserTextures pub or need to come up with a replacement.
         self.set_textures(textures_delta);
 
         self.render_prims_to_cache(
@@ -1490,6 +1489,7 @@ impl EguiSoftwareRenderInner {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_canvas_tile(
     simd_impl: AvailableImpl,
     sorted_prim_cache: &[&TiledCachedPrimitive],
