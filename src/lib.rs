@@ -17,7 +17,7 @@
 //!
 //!sw_render.render(
 //!    &mut buffer_ref,
-//!    BufferState::AlwaysZeroed,
+//!    BufferState::AlwaysBlit,
 //!    primitives,
 //!    &out.textures_delta,
 //!    out.pixels_per_point,
