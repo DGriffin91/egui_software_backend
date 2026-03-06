@@ -40,7 +40,7 @@ image = { version = "0.25", features = ["jpeg", "png"] }
 winit = { version = "0.30" }
 bytemuck = { version = "1.23" }
 dify = "0.7"
-argh = "0.1"
+argh = "0.1.14"
 
 
 # Enable optimization in debug mode

@@ -76,6 +76,8 @@ extern crate alloc;
 extern crate std;
 
 use core::ops::{Deref, DerefMut, Range};
+#[cfg(feature = "raster_stats")]
+use std::sync::Arc;
 
 use alloc::{borrow::Cow, vec, vec::Vec};
 
@@ -179,7 +181,7 @@ struct EguiSoftwareRenderInner {
     caching: SoftwareRenderCaching,
     simd_impl: AvailableImpl,
     #[cfg(feature = "raster_stats")]
-    pub stats: RenderStats,
+    stats: Arc<RenderStats>,
 }
 
 /// Manage single, double and triple buffering buffer states
@@ -370,8 +372,8 @@ impl EguiSoftwareRender {
     }
 
     #[cfg(feature = "raster_stats")]
-    pub(crate) fn stats(&self) -> &RenderStats {
-        &self.inner.stats
+    pub(crate) fn stats(&self) -> Arc<RenderStats> {
+        self.inner.stats.clone()
     }
 
     #[cfg(feature = "raster_stats")]
@@ -432,7 +434,9 @@ impl EguiSoftwareRender {
         pixels_per_point: f32,
     ) -> DirtyRect {
         #[cfg(feature = "raster_stats")]
-        self.inner.stats.clear();
+        {
+            self.inner.stats = Default::default();
+        }
 
         let use_internal_buffer = matches!(
             buffer_state,

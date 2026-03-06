@@ -1,3 +1,5 @@
+#[cfg(feature = "raster_stats")]
+use crate::stats::RenderStats;
 use crate::{
     BufferMutRef, BufferStates, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching,
 };
@@ -474,7 +476,8 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                         ctx,
                         &mut SoftwareBackend {
                             last_frame_time: self.last_frame_time,
-                            renderer: &mut self.renderer,
+                            #[cfg(feature = "raster_stats")]
+                            stats: self.renderer.stats(),
                         },
                     );
 
@@ -786,12 +789,14 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 /// }
 ///
 /// ```
-pub struct SoftwareBackend<'a> {
+pub struct SoftwareBackend {
     last_frame_time: Option<Duration>,
-    renderer: &'a mut EguiSoftwareRender,
+
+    #[cfg(feature = "raster_stats")]
+    stats: Arc<RenderStats>,
 }
 
-impl<'a> SoftwareBackend<'a> {
+impl SoftwareBackend {
     /// Returns the rendering duration of the last frame if this information is available.
     /// Returns none otherwise.
     pub fn last_frame_time(&self) -> Option<Duration> {
@@ -800,24 +805,7 @@ impl<'a> SoftwareBackend<'a> {
 
     #[cfg(feature = "raster_stats")]
     pub fn display_stats(&self, ui: &mut egui::Ui) {
-        self.renderer.display_stats(ui);
-    }
-
-    /// Get the caching mode of the renderer
-    pub fn caching(&self) -> SoftwareRenderCaching {
-        self.renderer.caching()
-    }
-
-    /// Change the caching mode of the renderer
-    pub fn set_caching(&mut self, caching: SoftwareRenderCaching) {
-        self.renderer.set_caching(caching);
-    }
-
-    /// Clear cache and reclaim memory
-    ///
-    /// This will cause the next frame to redraw everything
-    pub fn clear_cache(&mut self) {
-        self.renderer.clear_cache();
+        self.stats.render(ui);
     }
 }
 

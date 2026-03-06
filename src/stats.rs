@@ -164,10 +164,6 @@ impl<'a> RasterStatsStarted<'a> {
 }
 
 impl RenderStats {
-    pub(crate) fn clear(&mut self) {
-        *self = RenderStats::default();
-    }
-
     #[cfg(not(feature = "rayon"))]
     pub(crate) fn start_raster(&self) -> RasterStatsStarted<'_> {
         RasterStatsStarted {
