@@ -37,7 +37,7 @@ mod tests {
                 SoftwareRenderCaching::Mesh,
             ] {
                 for buffering_mode in [
-                    EguiSoftwareTestRenderMode::AlwaysNewZeroed,
+                    EguiSoftwareTestRenderMode::AlwaysBlit,
                     EguiSoftwareTestRenderMode::SimpleBuffering,
                     EguiSoftwareTestRenderMode::DoubleBuffering,
                     EguiSoftwareTestRenderMode::TripleBuffeing,

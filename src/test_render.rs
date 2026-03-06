@@ -7,7 +7,8 @@ use crate::{BufferMutRef, BufferState, BufferStates, EguiSoftwareRender};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EguiSoftwareTestRenderMode {
-    AlwaysNewZeroed,
+    AlwaysBlit,
+    AlwaysBlend,
     SimpleBuffering,
     DoubleBuffering,
     TripleBuffeing,
@@ -60,12 +61,14 @@ impl TestRenderer for EguiSoftwareTestRender {
             _ => 0,
         };
         let buffer_state = match self.mode {
-            EguiSoftwareTestRenderMode::AlwaysNewZeroed => BufferState::AlwaysZeroed,
+            EguiSoftwareTestRenderMode::AlwaysBlit => BufferState::AlwaysBlit,
+            EguiSoftwareTestRenderMode::AlwaysBlend => BufferState::AlwaysBlend,
             _ => self.buffer_states.next(age, len),
         };
 
         let buffer = match buffer_state {
-            BufferState::AlwaysZeroed
+            BufferState::AlwaysBlit
+            | BufferState::AlwaysBlend
             | BufferState::Buffer1Zeroed
             | BufferState::Buffer1Incremental => &mut self.buffer1,
             BufferState::Buffer2Zeroed | BufferState::Buffer2Incremental => &mut self.buffer2,

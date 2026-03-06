@@ -168,7 +168,9 @@ struct EguiSoftwareRenderInner {
     textures: HashMap<egui::TextureId, EguiTexture>,
     /// Tiles grid size (cols, rows)
     tiles_dim: [u32; 2],
+    /// dirty tiles for [`SoftwareRenderCaching::BlendTiled`]
     dirty_tiles: Vec<u8>,
+    /// dirty rects for [`SoftwareRenderCaching::MeshTiled`]
     dirty_rects: ComputeTiledDirtyRects,
     output_field_order: ColorFieldOrder,
     convert_tris_to_rects: bool,
@@ -219,7 +221,7 @@ impl BufferStates {
     /// a zeroed variant!
     pub fn next(&mut self, age: u8, buffer_len: usize) -> BufferState {
         if cfg!(any(target_os = "macos", target_os = "android")) {
-            return BufferState::AlwaysZeroed;
+            return BufferState::AlwaysBlit;
         }
         if age == 1 {
             // will present last frame
@@ -247,9 +249,15 @@ impl BufferStates {
 /// Decribe the state of the provided buffer before rendering
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BufferState {
-    /// The provided buffer will always be a new buffer filled with zeroes
-    /// This allows the renderer to know when to cache the last frame itself
-    AlwaysZeroed,
+    /// The provided buffer will always be a new buffer with unspecified contents.
+    /// The rendered will do single buffering internally and __blit__ (ie. memcpy) the cached content
+    /// to the provided buffer.
+    AlwaysBlit,
+
+    /// The provided buffer will always be a new buffer with unspecified contents.
+    /// The rendered will do single buffering internally and __blend__ the cached content
+    /// to the provided buffer.
+    AlwaysBlend,
 
     /// A new Buffer identified as #1, filled with zeroes
     Buffer1Zeroed,
@@ -271,7 +279,8 @@ impl BufferState {
     #[inline]
     pub const fn is_new_zeroed(self) -> bool {
         match self {
-            BufferState::AlwaysZeroed
+            BufferState::AlwaysBlit
+            | BufferState::AlwaysBlend
             | BufferState::Buffer1Zeroed
             | BufferState::Buffer2Zeroed
             | BufferState::Buffer3Zeroed => true,
@@ -283,7 +292,8 @@ impl BufferState {
 
     pub fn to_incremental(self) -> Self {
         match self {
-            Self::AlwaysZeroed => Self::AlwaysZeroed,
+            Self::AlwaysBlit => Self::AlwaysBlit,
+            Self::AlwaysBlend => Self::AlwaysBlend,
             Self::Buffer1Zeroed | Self::Buffer1Incremental => Self::Buffer1Incremental,
             Self::Buffer2Zeroed | Self::Buffer2Incremental => Self::Buffer2Incremental,
             Self::Buffer3Zeroed | Self::Buffer3Incremental => Self::Buffer3Incremental,
@@ -292,7 +302,8 @@ impl BufferState {
 
     pub fn to_new_zeroed(self) -> Self {
         match self {
-            Self::AlwaysZeroed => Self::AlwaysZeroed,
+            Self::AlwaysBlit => Self::AlwaysBlit,
+            Self::AlwaysBlend => Self::AlwaysBlend,
             Self::Buffer1Zeroed | Self::Buffer1Incremental => Self::Buffer1Zeroed,
             Self::Buffer2Zeroed | Self::Buffer2Incremental => Self::Buffer2Zeroed,
             Self::Buffer3Zeroed | Self::Buffer3Incremental => Self::Buffer3Zeroed,
@@ -302,97 +313,13 @@ impl BufferState {
 
 /// Software render backend for egui.
 pub struct EguiSoftwareRender {
+    /// Cache for [`SoftwareRenderCaching::BlendTiled`]
     tiledcached_primitives: HashMap<u32, TiledCachedPrimitive>,
+    /// Cache for [`SoftwareRenderCaching::MeshTiled`] or [`SoftwareRenderCaching::Mesh`]
     dirtycached_primitives: HashMap<u32, MeshCachedPrimitive>,
-    inner: EguiSoftwareRenderInner,
-}
-
-/// Software render backend for egui with managed canvas.
-pub struct EguiSoftwareRenderCanvas {
+    /// Internal single buffering for [`BufferState::AlwaysBlit`] or [`BufferState::AlwaysBlend`]
     canvas: Vec<[u8; 4]>,
-    renderer: EguiSoftwareRender,
-}
-
-impl Deref for EguiSoftwareRenderCanvas {
-    type Target = EguiSoftwareRender;
-
-    fn deref(&self) -> &Self::Target {
-        &self.renderer
-    }
-}
-
-impl DerefMut for EguiSoftwareRenderCanvas {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.renderer
-    }
-}
-
-#[inline]
-fn blit_rect(
-    simd_impl: impl SelectedImpl,
-    canvas: &BufferMutRef,
-    buffer: &mut BufferMutRef,
-    rect: DirtyRect,
-    canvas_row_offset: u32,
-) {
-    for y in rect.min_y..rect.max_y {
-        let src_row = canvas.get_span(rect.min_x, rect.max_x, y + canvas_row_offset);
-        let dst_row = &mut buffer.get_mut_span(rect.min_x, rect.max_x, y);
-
-        simd_impl.egui_blend_u8_slice(src_row, dst_row)
-    }
-}
-
-impl EguiSoftwareRenderCanvas {
-    pub fn render(
-        &mut self,
-        buffer_ref: &mut BufferMutRef,
-        paint_jobs: Vec<egui::ClippedPrimitive>,
-        textures_delta: &egui::TexturesDelta,
-        pixels_per_point: f32,
-    ) {
-        if self.renderer.inner.caching == SoftwareRenderCaching::Direct {
-            self.renderer.render(
-                buffer_ref,
-                BufferState::AlwaysZeroed,
-                paint_jobs,
-                textures_delta,
-                pixels_per_point,
-            );
-        } else {
-            let len = as_usize(buffer_ref.width) * as_usize(buffer_ref.height);
-            let redraw_everything_this_frame = self.canvas.len() != len;
-            if redraw_everything_this_frame {
-                self.canvas.clear();
-                let len = as_usize(buffer_ref.width) * as_usize(buffer_ref.height);
-                self.canvas.resize(len, [0; 4]);
-                // ^ data is now cleared in a singled memset call
-            }
-            let simd_impl = self.inner.simd_impl;
-            let mut canvas =
-                BufferMutRef::new(&mut self.canvas, buffer_ref.width, buffer_ref.height);
-            let dirty_rect = self.renderer.render(
-                &mut canvas,
-                if redraw_everything_this_frame {
-                    BufferState::Buffer1Zeroed
-                } else {
-                    BufferState::Buffer1Incremental
-                },
-                paint_jobs,
-                textures_delta,
-                pixels_per_point,
-            );
-            if self.renderer.inner.caching == SoftwareRenderCaching::BlendTiled {
-                self.renderer
-                    .inner
-                    .blit_to_buffer_from_tiledcanvas(simd_impl, &canvas, buffer_ref);
-            } else {
-                dispatch_simd_impl!(simd_impl, |simd_impl| blit_rect(
-                    simd_impl, &canvas, buffer_ref, dirty_rect, 0
-                ));
-            }
-        }
-    }
+    inner: EguiSoftwareRenderInner,
 }
 
 impl EguiSoftwareRender {
@@ -403,6 +330,7 @@ impl EguiSoftwareRender {
         EguiSoftwareRender {
             tiledcached_primitives: Default::default(),
             dirtycached_primitives: Default::default(),
+            canvas: Vec::new(),
             inner: EguiSoftwareRenderInner {
                 textures: Default::default(),
                 tiles_dim: Default::default(),
@@ -439,13 +367,6 @@ impl EguiSoftwareRender {
     pub fn with_caching(mut self, set: SoftwareRenderCaching) -> Self {
         self.inner.caching = set;
         self
-    }
-
-    pub fn with_canvas(self) -> EguiSoftwareRenderCanvas {
-        EguiSoftwareRenderCanvas {
-            canvas: Vec::new(),
-            renderer: self,
-        }
     }
 
     #[cfg(feature = "raster_stats")]
@@ -512,10 +433,36 @@ impl EguiSoftwareRender {
     ) -> DirtyRect {
         #[cfg(feature = "raster_stats")]
         self.inner.stats.clear();
-        match self.inner.caching {
+
+        let use_internal_buffer = matches!(
+            buffer_state,
+            BufferState::AlwaysBlend | BufferState::AlwaysBlit
+        );
+        let mut internal_canvas = use_internal_buffer.then(|| {
+            let len = as_usize(buffer_ref.width * buffer_ref.height);
+            let mut canvas = std::mem::take(&mut self.canvas);
+            //^ take the canvas so we can satisfy borrow checker without another struct
+            let redraw_everything_this_frame = canvas.len() != len;
+            if redraw_everything_this_frame {
+                canvas.clear();
+                canvas.resize(len, [0; 4]);
+                // ^ data is now cleared in a single memset call
+            }
+            canvas
+        });
+        let render_data = match &mut internal_canvas {
+            Some(canvas) => canvas,
+            None => &mut *buffer_ref.data,
+        };
+        let render_buffer = &mut BufferMutRef {
+            data: render_data,
+            ..*buffer_ref
+        };
+
+        let dirty_rect = match self.inner.caching {
             SoftwareRenderCaching::Direct => {
                 self.inner.render_direct(
-                    buffer_ref,
+                    render_buffer,
                     buffer_state,
                     paint_jobs,
                     textures_delta,
@@ -524,26 +471,47 @@ impl EguiSoftwareRender {
                 DirtyRect {
                     min_x: 0,
                     min_y: 0,
-                    max_x: buffer_ref.width,
-                    max_y: buffer_ref.height,
+                    max_x: render_buffer.width,
+                    max_y: render_buffer.height,
                 }
             }
             SoftwareRenderCaching::MeshTiled | SoftwareRenderCaching::Mesh => self
                 .render_meshmaybetiled(
-                    buffer_ref,
+                    render_buffer,
                     buffer_state,
                     paint_jobs,
                     textures_delta,
                     pixels_per_point,
                 ),
             SoftwareRenderCaching::BlendTiled => self.render_blendtiled(
-                buffer_ref,
+                render_buffer,
                 buffer_state,
                 paint_jobs,
                 textures_delta,
                 pixels_per_point,
             ),
+        };
+
+        if let Some(canvas) = internal_canvas {
+            let src = &canvas;
+            let dst = &mut buffer_ref.data[..src.len()];
+            match buffer_state {
+                BufferState::AlwaysBlit => {
+                    // memcpy
+                    dst.copy_from_slice(src);
+                }
+                BufferState::AlwaysBlend => {
+                    dispatch_simd_impl!(self.inner.simd_impl, |simd_impl| simd_impl
+                        .egui_blend_u8_slice(src, dst));
+                }
+                _ => unreachable!(),
+            }
+
+            self.canvas = canvas;
+            //^ give the canvas back
         }
+
+        dirty_rect
     }
 
     fn render_blendtiled(
@@ -689,130 +657,6 @@ impl EguiSoftwareRenderInner {
         }
 
         dirty_rect
-    }
-
-    /// Draw canvas alpha over given buffer.
-    /// Only run after EguiSoftwareRender::render() with TiledCacheing to run both.
-    /// Only writes tile regions that contain pixels that are not fully transparent.
-    fn blit_to_buffer_from_tiledcanvas(
-        &self,
-        simd_impl: AvailableImpl,
-        canvas: &BufferMutRef,
-        buffer: &mut BufferMutRef,
-    ) {
-        #[cfg(feature = "raster_stats")]
-        let start = std::time::Instant::now();
-
-        // Simple tile-less version
-        // buffer.data.iter_mut().zip(self.canvas.iter()).for_each(|(pixel, src)| {
-        //     *pixel = egui_blend_u8(*src, *pixel);
-        // });
-
-        if canvas.data.is_empty() {
-            #[cfg(feature = "log")]
-            log::error!(
-                "Canvas not initialized, call EguiSoftwareRender::blit_canvas_to_buffer() only after EguiSoftwareRender::render_to_canvas()"
-            );
-            return;
-        }
-
-        let width = canvas.width;
-        let height = canvas.height;
-        assert_eq!(canvas.data.len(), as_usize(width * height));
-        assert_eq!(buffer.data.len(), as_usize(width * height));
-
-        let tiles_x = self.tiles_dim[0];
-
-        #[cfg(feature = "rayon")]
-        {
-            use rayon::{
-                iter::{IndexedParallelIterator, ParallelIterator},
-                slice::ParallelSliceMut,
-            };
-            // blit rows of tiles in parallel
-
-            let width = buffer.width;
-            let px_per_row_of_tiles = as_usize(width * TILE_SIZE);
-
-            buffer
-                .data
-                .par_chunks_mut(px_per_row_of_tiles)
-                .enumerate()
-                .for_each(|(tile_row, tile_height_row)| {
-                    let tile_row = tile_row as u32;
-                    let height = tile_height_row.len() as u32 / width; // Might be less than TILE_SIZE
-                    let buffer_tile_row = &mut BufferMutRef::new(tile_height_row, width, height);
-
-                    for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
-                        if mask & EguiSoftwareRenderInner::OCCUPIED_TILE_MASK == 0 {
-                            continue;
-                        }
-
-                        let tile_idx = tile_idx as u32;
-                        let tile_y = tile_idx / tiles_x;
-                        if tile_y != tile_row {
-                            continue;
-                        }
-
-                        let tile_x = tile_idx % tiles_x;
-
-                        let x_start = tile_x * TILE_SIZE;
-                        let y_start = 0;
-                        let x_end = (x_start + TILE_SIZE).min(width);
-                        let y_end = TILE_SIZE.min(height);
-
-                        let canvas_row_offset = tile_row * TILE_SIZE;
-
-                        dispatch_simd_impl!(simd_impl, |simd_impl| blit_rect(
-                            simd_impl,
-                            canvas,
-                            buffer_tile_row,
-                            DirtyRect {
-                                min_x: x_start,
-                                min_y: y_start,
-                                max_x: x_end,
-                                max_y: y_end,
-                            },
-                            canvas_row_offset,
-                        ));
-                    }
-                });
-        }
-        #[cfg(not(feature = "rayon"))]
-        {
-            for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
-                if mask & Self::OCCUPIED_TILE_MASK == 0 {
-                    continue;
-                }
-
-                let tile_idx = tile_idx as u32;
-                let tile_x = tile_idx % tiles_x;
-                let tile_y = tile_idx / tiles_x;
-
-                let x_start = tile_x * TILE_SIZE;
-                let y_start = tile_y * TILE_SIZE;
-                let x_end = (x_start + TILE_SIZE).min(width);
-                let y_end = (y_start + TILE_SIZE).min(height);
-
-                dispatch_simd_impl!(simd_impl, |simd_impl| blit_rect(
-                    simd_impl,
-                    canvas,
-                    buffer,
-                    DirtyRect {
-                        min_x: x_start,
-                        min_y: y_start,
-                        max_x: x_end,
-                        max_y: y_end,
-                    },
-                    0,
-                ));
-            }
-        }
-
-        #[cfg(feature = "raster_stats")]
-        {
-            self.stats.blit_canvas_to_buffer.mark(start);
-        }
     }
 
     /// Render directly into buffer without cache. This is much slower and mainly intended for testing.
@@ -1590,7 +1434,7 @@ impl BufferState {
     const fn as_flag(self) -> BufferStateFlag {
         BufferStateFlag {
             flag: match self {
-                BufferState::AlwaysZeroed => 1,
+                BufferState::AlwaysBlit | BufferState::AlwaysBlend => 1,
                 BufferState::Buffer1Zeroed | BufferState::Buffer1Incremental => 1,
                 BufferState::Buffer2Zeroed | BufferState::Buffer2Incremental => 2,
                 BufferState::Buffer3Zeroed | BufferState::Buffer3Incremental => 4,
@@ -1886,7 +1730,7 @@ mod tests {
     fn ages_up_to_1() {
         let mut ages = BufferStates::new();
         if cfg!(any(target_os = "macos", target_os = "android")) {
-            assert_eq!(ages.next(0, 10), BufferState::AlwaysZeroed);
+            assert_eq!(ages.next(0, 10), BufferState::AlwaysBlit);
             return;
         }
         assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
@@ -1907,7 +1751,7 @@ mod tests {
     fn ages_up_to_2() {
         let mut ages = BufferStates::new();
         if cfg!(any(target_os = "macos", target_os = "android")) {
-            assert_eq!(ages.next(0, 10), BufferState::AlwaysZeroed);
+            assert_eq!(ages.next(0, 10), BufferState::AlwaysBlit);
             return;
         }
         assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
@@ -1942,7 +1786,7 @@ mod tests {
     fn ages_up_to_3() {
         let mut ages = BufferStates::new();
         if cfg!(any(target_os = "macos", target_os = "android")) {
-            assert_eq!(ages.next(0, 10), BufferState::AlwaysZeroed);
+            assert_eq!(ages.next(0, 10), BufferState::AlwaysBlit);
             return;
         }
         assert_eq!(ages.next(0, 10), BufferState::Buffer3Zeroed);
