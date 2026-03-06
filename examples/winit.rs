@@ -19,19 +19,36 @@ impl EguiApp {
             frame_times: Vec::new(),
         }
     }
+
+    fn ui(&mut self, ctx: &egui::Context) {
+        //egui::CentralPanel::default().show(ctx, |_ui| {
+        self.demo.ui(ctx);
+
+        egui::Window::new("Color Test").show(ctx, |ui| {
+            egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+                self.color_test.ui(ui);
+            });
+        });
+        //});
+    }
+}
+
+impl eframe::App for EguiApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |_ui| {
+            self.ui(ctx);
+        });
+    }
 }
 
 impl egui_software_backend::App for EguiApp {
     fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
-        backend.set_capture_frame_time(true);
-
         egui::CentralPanel::default().show(ctx, |_ui| {
-            self.demo.ui(ctx);
+            self.ui(ctx);
 
-            egui::Window::new("Color Test").show(ctx, |ui| {
-                egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-                    self.color_test.ui(ui);
-                });
+            #[cfg(feature = "raster_stats")]
+            egui::Window::new("Stats").show(ctx, |ui| {
+                backend.display_stats(ui);
             });
 
             if self.frame_times.len() < 100 {

@@ -1,9 +1,11 @@
 // Based on: https://github.com/rust-windowing/softbuffer/blob/046de9228d89369151599f3f50dc4b75bd5e522b/examples/winit.rs
 
-use argh::FromArgs;
+use argh::{FromArgValue, FromArgs};
 use core::num::NonZeroU32;
 use egui_demo_lib::ColorTest;
-use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
+use egui_software_backend::{
+    BufferMutRef, ColorFieldOrder, EguiSoftwareRender, SoftwareRenderCaching,
+};
 use std::rc::Rc;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
@@ -15,7 +17,15 @@ use crate::winit_app::WinitApp;
 #[path = "../examples/utils/winit_app.rs"]
 mod winit_app;
 
-#[derive(FromArgs, Copy, Clone)]
+#[derive(FromArgValue)]
+enum CachingArg {
+    BlendTiled,
+    MeshTiled,
+    Mesh,
+    Direct,
+}
+
+#[derive(FromArgs)]
 /// `bevy` example
 struct Args {
     /// disable raster optimizations. Rasterize everything with triangles, always calculate vertex colors, uvs, use
@@ -28,9 +38,9 @@ struct Args {
     #[argh(switch)]
     no_rect: bool,
 
-    /// render directly into buffer without cache. This is much slower and mainly intended for testing.
-    #[argh(switch)]
-    direct: bool,
+    /// select the caching mode, defaults to BlendTiled
+    #[argh(option)]
+    caching: Option<CachingArg>,
 }
 
 struct AppState {
@@ -44,10 +54,17 @@ fn main() {
 
     let mut egui_demo = egui_demo_lib::DemoWindows::default();
     let mut egui_color_test = ColorTest::default();
+    let caching = match args.caching {
+        Some(CachingArg::BlendTiled) | None => SoftwareRenderCaching::BlendTiled,
+        Some(CachingArg::MeshTiled) => SoftwareRenderCaching::MeshTiled,
+        Some(CachingArg::Mesh) => SoftwareRenderCaching::Mesh,
+        Some(CachingArg::Direct) => SoftwareRenderCaching::Direct,
+    };
     let mut egui_software_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra)
         .with_allow_raster_opt(!args.no_opt)
         .with_convert_tris_to_rects(!args.no_rect)
-        .with_caching(!args.direct);
+        .with_caching(caching);
+    let mut buffer_states = egui_software_backend::BufferStates::new();
 
     let event_loop: EventLoop<()> = EventLoop::new().unwrap();
 
@@ -139,7 +156,7 @@ fn main() {
 
                         #[cfg(feature = "raster_stats")]
                         egui::Window::new("Stats").show(ctx, |ui| {
-                            egui_software_render.stats.render(ui);
+                            egui_software_render.display_stats(ui);
                         });
                     });
 
@@ -148,22 +165,34 @@ fn main() {
                         .tessellate(full_output.shapes, full_output.pixels_per_point);
 
                     let mut buffer = app.surface.buffer_mut().unwrap();
-                    buffer.fill(0); // CLEAR
-
+                    let age = buffer.age();
                     let buffer_ref = &mut BufferMutRef::new(
                         bytemuck::cast_slice_mut(&mut buffer),
-                        width as usize,
-                        height as usize,
+                        width,
+                        height,
                     );
+                    let buffer_state = buffer_states.next(age, buffer_ref.data.len());
+                    if buffer_state.is_new_zeroed() {
+                        // age == 0 || resized
+                        buffer_ref.data.fill(Default::default());
+                    }
 
-                    egui_software_render.render(
+                    let dirty_rect = egui_software_render.render(
                         buffer_ref,
-                        &clipped_primitives,
+                        buffer_state,
+                        clipped_primitives,
                         &full_output.textures_delta,
                         full_output.pixels_per_point,
                     );
-
-                    buffer.present().unwrap();
+                    if !dirty_rect.is_empty() {
+                        let dirty_rect = softbuffer::Rect {
+                            x: dirty_rect.min_x,
+                            y: dirty_rect.min_y,
+                            width: NonZeroU32::new(dirty_rect.width()).expect("non zero rect"),
+                            height: NonZeroU32::new(dirty_rect.height()).expect("non zero rect"),
+                        };
+                        buffer.present_with_damage(&[dirty_rect]).unwrap();
+                    }
 
                     let now = Instant::now();
                     if frame_times.len() < 100 {
@@ -171,7 +200,7 @@ fn main() {
                     } else {
                         let avg =
                             (frame_times.iter().sum::<f32>() / frame_times.len() as f32) * 1000.0;
-                        window.set_title(&format!("Frame Time {avg:.2}ms"));
+                        window.set_title(&format!("Frame Time {avg:.2}ms - {caching:?}"));
                         frame_times.clear();
                     }
                     last_frame_time = now;
