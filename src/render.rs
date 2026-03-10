@@ -64,12 +64,12 @@ fn draw_egui_mesh_impl<const SUBPIX_BITS: i32>(
 
     let clip_bounds = [
         i64vec2(
-            ((clip_rect.min.x + 0.5) as i64).clamp(0, buffer.width as i64),
-            ((clip_rect.min.y + 0.5) as i64).clamp(0, buffer.height as i64),
+            (clip_rect.min.x as i64).clamp(0, buffer.width as i64),
+            (clip_rect.min.y as i64).clamp(0, buffer.height as i64),
         ),
         i64vec2(
-            ((clip_rect.max.x + 0.5) as i64).clamp(0, buffer.width as i64),
-            ((clip_rect.max.y + 0.5) as i64).clamp(0, buffer.height as i64),
+            (clip_rect.max.x.ceil() as i64).clamp(0, buffer.width as i64),
+            (clip_rect.max.y.ceil() as i64).clamp(0, buffer.height as i64),
         ),
     ];
 
