@@ -667,8 +667,10 @@ impl EguiSoftwareRender {
                             rendered_this_frame: false,
                         })
                     } else {
-                        let width = (cropped_max.x - cropped_min.x + 0.5) as usize;
-                        let height = (cropped_max.y - cropped_min.y + 0.5) as usize;
+                        let min_x = cropped_min.x as usize;
+                        let min_y = cropped_min.y as usize;
+                        let width = (cropped_max.x.ceil() as usize) - min_x;
+                        let height = (cropped_max.y.ceil() as usize) - min_y;
 
                         if width > 8192 || height > 8192 {
                             // TODO it occasionally tries to make giant buffers in the first couple frames initially for some reason.
@@ -681,13 +683,7 @@ impl EguiSoftwareRender {
 
                         let render_in_low_precision = width > 4096 || height > 4096;
 
-                        let mut prim = CachedPrimitive::new(
-                            cropped_min.x as usize,
-                            cropped_min.y as usize,
-                            width,
-                            height,
-                            prim_idx,
-                        );
+                        let mut prim = CachedPrimitive::new(min_x, min_y, width, height, prim_idx);
                         let mut buffer_ref = BufferMutRef {
                             data: &mut prim.buffer,
                             width,
