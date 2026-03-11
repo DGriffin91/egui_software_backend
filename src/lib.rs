@@ -668,7 +668,7 @@ impl EguiSoftwareRender {
                     let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
                     let clip_rect = egui::Rect {
                         min: Pos2::ZERO,
-                        max: (cropped_max - cropped_min).to_pos2(),
+                        max: (cropped_max - cropped_min).to_pos2() + egui::Vec2::splat(0.5),
                     };
 
                     let hash = {
