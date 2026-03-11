@@ -155,6 +155,17 @@ pub struct EguiSoftwareRender {
     simd_impl: AvailableImpl,
     #[cfg(feature = "raster_stats")]
     pub stats: RasterStats,
+    frame: u32,
+    pub record_frame_input: bool,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct FrameInputData {
+    pub buffer_width: u32,
+    pub buffer_height: u32,
+    pub paint_jobs: Vec<(egui::Rect, Mesh)>,
+    pub textures_delta: egui::TexturesDelta,
+    pub pixels_per_point: f32,
 }
 
 impl EguiSoftwareRender {
@@ -178,6 +189,8 @@ impl EguiSoftwareRender {
             simd_impl: Default::default(),
             #[cfg(feature = "raster_stats")]
             stats: Default::default(),
+            frame: 0,
+            record_frame_input: true,
         }
     }
 
@@ -219,6 +232,36 @@ impl EguiSoftwareRender {
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) {
+        if self.record_frame_input && self.frame <= 500 {
+            let frame_input = FrameInputData {
+                buffer_width: buffer_ref.width as u32,
+                buffer_height: buffer_ref.height as u32,
+                paint_jobs: paint_jobs
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.clip_rect,
+                            match p.primitive.clone() {
+                                egui::epaint::Primitive::Mesh(mesh) => mesh,
+                                egui::epaint::Primitive::Callback(_paint_callback) => {
+                                    unimplemented!()
+                                }
+                            },
+                        )
+                    })
+                    .collect(),
+                textures_delta: textures_delta.clone(),
+                pixels_per_point,
+            };
+            use std::format;
+            let _ = std::fs::create_dir("frame_inputs/");
+            std::fs::write(
+                &format!("frame_inputs/frame_{}", self.frame),
+                &postcard::to_stdvec(&frame_input).unwrap(),
+            )
+            .unwrap();
+        }
+
         if self.cacheing_enabled {
             self.render_to_canvas(
                 buffer_ref.width,
@@ -231,6 +274,7 @@ impl EguiSoftwareRender {
         } else {
             self.render_direct(buffer_ref, paint_jobs, textures_delta, pixels_per_point);
         }
+        self.frame += 1;
     }
 
     /// Renders the given paint jobs to an intermediate canvas.

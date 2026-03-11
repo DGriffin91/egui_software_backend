@@ -3,3 +3,5 @@
 .idea
 
 Cargo.lock
+/frame_inputs
+/frame_outputs
