@@ -128,10 +128,10 @@ fn main() {
 
                     let raw_input = app.egui_winit.take_egui_input(window);
 
-                    let full_output = app.egui_ctx.run(raw_input, |ctx| {
-                        egui_demo.ui(ctx);
+                    let full_output = app.egui_ctx.run_ui(raw_input, |ui| {
+                        egui_demo.ui(ui);
 
-                        egui::Window::new("Color Test").show(ctx, |ui| {
+                        egui::Window::new("Color Test").show(ui, |ui| {
                             egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                                 egui_color_test.ui(ui);
                             });

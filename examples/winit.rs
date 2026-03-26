@@ -22,13 +22,13 @@ impl EguiApp {
 }
 
 impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
+    fn update(&mut self, ui: &mut egui::Ui, backend: &mut SoftwareBackend) {
         backend.set_capture_frame_time(true);
 
-        egui::CentralPanel::default().show(ctx, |_ui| {
-            self.demo.ui(ctx);
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.demo.ui(ui);
 
-            egui::Window::new("Color Test").show(ctx, |ui| {
+            egui::Window::new("Color Test").show(ui, |ui| {
                 egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                     self.color_test.ui(ui);
                 });
@@ -40,7 +40,8 @@ impl egui_software_backend::App for EguiApp {
             } else {
                 let avg =
                     (self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32) * 1000.0;
-                ctx.send_viewport_cmd(ViewportCommand::Title(format!("Frame Time {avg:.2}ms")));
+                ui.ctx()
+                    .send_viewport_cmd(ViewportCommand::Title(format!("Frame Time {avg:.2}ms")));
                 self.frame_times.clear();
             }
         });

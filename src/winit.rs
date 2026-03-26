@@ -477,8 +477,8 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
                     .extend_from_slice(self.input_events.as_slice());
                 self.input_events.clear();
 
-                let full_output = self.egui_context.run(raw_input, |ctx| {
-                    self.egui_app.update(ctx, &mut self.software_backend);
+                let full_output = self.egui_context.run_ui(raw_input, |ui| {
+                    self.egui_app.update(ui, &mut self.software_backend);
 
                     self.egui_context.viewport(|r| {
                         let mut die = false;
@@ -802,7 +802,7 @@ impl SoftwareBackend {
 
 /// Implement this trait to write apps using the optional winit backend similarly to eframe's App.
 pub trait App {
-    fn update(&mut self, ctx: &Context, software_backend: &mut SoftwareBackend);
+    fn update(&mut self, ui: &mut egui::Ui, software_backend: &mut SoftwareBackend);
 
     fn on_exit(&mut self, _ctx: &Context) {}
 }
@@ -839,6 +839,7 @@ impl SoftwareBackendAppConfiguration {
     pub const fn new() -> Self {
         //The constructor is not const.
         let vp = ViewportBuilder {
+            override_redirect: None,
             title: None,
             app_id: None,
             position: None,
