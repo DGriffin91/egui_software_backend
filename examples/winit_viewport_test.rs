@@ -208,7 +208,7 @@ impl eframe::App for EguiApp {
 }
 
 impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ui: &mut Ui, _backend: &mut SoftwareBackend) {
+    fn ui(&mut self, ui: &mut Ui, _backend: &mut SoftwareBackend) {
         EguiApp::update(self, ui);
     }
 }

@@ -41,7 +41,7 @@ impl EguiApp {
 }
 
 impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ui: &mut egui::Ui, _backend: &mut SoftwareBackend) {
+    fn ui(&mut self, ui: &mut egui::Ui, _backend: &mut SoftwareBackend) {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.label("Hello World!");
         });
