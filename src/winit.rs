@@ -759,11 +759,11 @@ impl<EguiApp: App, EguiAppFactory: FnMut(Context) -> EguiApp>
 /// }
 ///
 /// impl App for MyApp {
-///     fn update(&mut self, ctx: &egui::Context, backend: &mut SoftwareBackend) {
+///     fn update(&mut self, ui: &mut egui::Ui, backend: &mut SoftwareBackend) {
 ///         backend.set_capture_frame_time(true);
 ///
 ///
-///        egui::CentralPanel::default().show(ctx, |ui| {
+///        egui::CentralPanel::default().show_inside(ui, |ui| {
 ///        ui.label(format!(
 ///           "Frame Time {}ms",
 ///            backend.last_frame_time().unwrap_or_default().as_millis()

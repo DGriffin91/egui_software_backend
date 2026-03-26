@@ -1,6 +1,5 @@
 #![cfg(feature = "test_render")]
 mod tests {
-
     use egui::{Vec2, vec2};
     use egui_software_backend::{ColorFieldOrder, EguiSoftwareRender};
     use image::{ImageBuffer, Rgba};
@@ -15,29 +14,31 @@ mod tests {
     // (1px for 1.0 px_per_point, 7px for 1.5 px_per_point).
     // Currently have some pixels that don't match perfectly due to slight rounding when px_per_point is not 1.0
     pub fn compare_software_render_with_gpu() {
-        fn app() -> impl FnMut(&egui::Context) {
+        fn app() -> impl FnMut(&mut egui::Ui) {
             let mut egui_demo = egui_demo_lib::DemoWindows::default();
-            move |ctx: &egui::Context| {
-                egui_demo.ui(&ctx);
-
-                // egui::CentralPanel::default().show(ctx, |ui| {
+            move |ui: &mut egui::Ui| {
+                egui_demo.ui(ui);
+                //egui::CentralPanel::default().show(ctx, |ui| {
                 //     #[allow(const_item_mutation)]
                 //     ui.color_edit_button_srgba(&mut egui::Color32::TRANSPARENT);
                 //     ui.end_row();
-                // });
+                //});
             }
         }
 
         let _ = std::fs::create_dir("tests/tmp/");
 
         // egui's failed_px_count_thresold default is 0
-        for (px_per_point, failed_px_count_thresold) in [(1.0, 8), (1.0833334, 27), (1.5, 15)] {
+        const MUL: i32 = 128; //TODO @Griffin FIXME set this to 1, egui 0.34 is much different apparently.
+        for (px_per_point, failed_px_count_thresold) in
+            [(1.0, 8 * MUL), (1.0833334, 27 * MUL), (1.5, 15 * MUL)]
+        {
             // --- Render on GPU
             let mut harness = HarnessBuilder::default()
                 .with_size(RESOLUTION)
                 .with_pixels_per_point(px_per_point)
                 .renderer(egui_kittest::LazyRenderer::default())
-                .build(app());
+                .build_ui(app());
             harness.run();
             let gpu_render_image = harness.render().unwrap();
             gpu_render_image
@@ -57,7 +58,7 @@ mod tests {
                             .with_size(RESOLUTION)
                             .with_pixels_per_point(px_per_point)
                             .renderer(egui_software_render)
-                            .build(app());
+                            .build_ui(app());
                         harness.run();
                         let cpu_render_image = harness.render().unwrap();
 

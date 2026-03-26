@@ -48,7 +48,7 @@ skip = [
   { name = "thiserror" }, # ecosystem is in the process of migrating from 1.x to 2.x
   { name = "thiserror-impl" }, # same as above
   { name = "windows-sys" }, # mostly hopeless to avoid
-  { name = "accesskit_consumer" }, # kittest depends on 0.30, egui-winit depends on 0.31
+  { name = "winnow"} #egui 0.34 depends on 2 versions of this somewhat directly. Nothing we can do about it.
 ]
 skip-tree = [
   { name = "hashbrown" }, # wgpu's naga depends on 0.16, accesskit depends on 0.15

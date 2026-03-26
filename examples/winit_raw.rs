@@ -138,7 +138,7 @@ fn main() {
                         });
 
                         #[cfg(feature = "raster_stats")]
-                        egui::Window::new("Stats").show(ctx, |ui| {
+                        egui::Window::new("Stats").show(ui, |ui| {
                             egui_software_render.stats.render(ui);
                         });
                     });
