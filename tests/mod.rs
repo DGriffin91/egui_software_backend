@@ -29,10 +29,7 @@ mod tests {
         let _ = std::fs::create_dir("tests/tmp/");
 
         // egui's failed_px_count_thresold default is 0
-        const MUL: i32 = 128; //TODO @Griffin FIXME set this to 1, egui 0.34 is much different apparently.
-        for (px_per_point, failed_px_count_thresold) in
-            [(1.0, 8 * MUL), (1.0833334, 27 * MUL), (1.5, 15 * MUL)]
-        {
+        for (px_per_point, failed_px_count_thresold) in [(1.0, 8), (1.0833334, 27), (1.5, 15)] {
             // --- Render on GPU
             let mut harness = HarnessBuilder::default()
                 .with_size(RESOLUTION)

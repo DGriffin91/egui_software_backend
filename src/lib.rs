@@ -455,8 +455,7 @@ impl EguiSoftwareRender {
 
             let clip_rect = egui::Rect {
                 min: clip_rect.min * pixels_per_point,
-                // TODO not sure why +1.5 is needed here. Occasionally things are cropped out without it.
-                max: clip_rect.max * pixels_per_point + egui::Vec2::splat(1.5),
+                max: clip_rect.max * pixels_per_point,
             };
 
             let mut mesh_min = egui::Vec2::splat(f32::MAX);
@@ -607,7 +606,7 @@ impl EguiSoftwareRender {
 
                     let clip_rect = egui::Rect {
                         min: clip_rect.min * pixels_per_point,
-                        max: clip_rect.max * pixels_per_point + egui::Vec2::splat(0.5),
+                        max: clip_rect.max * pixels_per_point,
                     };
 
                     let mut mesh_min = egui::Vec2::splat(f32::MAX);
@@ -624,7 +623,7 @@ impl EguiSoftwareRender {
                     let cropped_max = mesh_max.min(clip_rect.max.to_vec2());
                     let clip_rect = egui::Rect {
                         min: Pos2::ZERO,
-                        max: (cropped_max - cropped_min).to_pos2() + egui::Vec2::splat(0.5),
+                        max: (cropped_max - cropped_min).to_pos2(),
                     };
 
                     let hash = {
