@@ -9,8 +9,8 @@
 //!let mut demo = egui_demo_lib::DemoWindows::default();
 //!let mut sw_render = EguiSoftwareRender::new(ColorFieldOrder::Bgra);
 //!
-//!let out = ctx.run(egui::RawInput::default(), |ctx| {
-//!    demo.ui(ctx);
+//!let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+//!    demo.ui(ui);
 //!});
 //!
 //!let primitives = ctx.tessellate(out.shapes, out.pixels_per_point);
@@ -40,8 +40,8 @@
 //!    }
 //!
 //!    impl egui_software_backend::App for EguiApp {
-//!        fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
-//!            egui::CentralPanel::default().show(ctx, |ui| {
+//!        fn ui(&mut self, ui: &mut egui::Ui, _backend: &mut SoftwareBackend) {
+//!            egui::CentralPanel::default().show_inside(ui, |ui| {
 //!                ui.label("Hello World!");
 //!            });
 //!        }

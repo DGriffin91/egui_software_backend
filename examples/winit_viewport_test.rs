@@ -2,7 +2,7 @@
 // eframe. Test against eframe with USE_EFRAME=true env var.
 
 use eframe::Frame;
-use egui::{Context, CursorGrab, SystemTheme, Vec2, ViewportCommand, vec2};
+use egui::{Context, CursorGrab, SystemTheme, Ui, Vec2, ViewportCommand, vec2};
 use egui_software_backend::{SoftwareBackend, SoftwareBackendAppConfiguration};
 use std::thread;
 use std::time::Duration;
@@ -20,9 +20,11 @@ impl EguiApp {
         EguiApp::default()
     }
 
-    fn update(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::scroll_area::ScrollArea::both().show(ui, |ui| {
+                let ctx = ui.ctx().clone();
+
                 if ui
                     .button("Visible(false) -> Wait 5s -> Visible(true)")
                     .clicked()
@@ -200,14 +202,14 @@ impl EguiApp {
 }
 
 impl eframe::App for EguiApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        EguiApp::update(self, ctx);
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut Frame) {
+        EguiApp::update(self, ui);
     }
 }
 
 impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ctx: &Context, _backend: &mut SoftwareBackend) {
-        EguiApp::update(self, ctx);
+    fn ui(&mut self, ui: &mut Ui, _backend: &mut SoftwareBackend) {
+        EguiApp::update(self, ui);
     }
 }
 

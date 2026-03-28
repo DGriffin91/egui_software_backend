@@ -41,8 +41,8 @@ impl EguiApp {
 }
 
 impl egui_software_backend::App for EguiApp {
-    fn update(&mut self, ctx: &egui::Context, _backend: &mut SoftwareBackend) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _backend: &mut SoftwareBackend) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.label("Hello World!");
         });
     }
@@ -59,7 +59,15 @@ fn main() {
 }
 ```
 
-[egui_backend_selector](https://github.com/AlexanderSchuetz97/egui_backend_selector) can be used in conjunction with this crate to automatically fallback to using this software renderer at runtime. 
+[egui_backend_selector](https://github.com/AlexanderSchuetz97/egui_backend_selector) can be used in conjunction with this crate to automatically fallback to using this software renderer at runtime.
 
 ## Other examples
 - bevy + softbuffer see examples/bevy_example folder
+
+## egui version mapping
+| egui_software_backend | egui   |
+|-----------------------|--------|
+| 0.0.3                 | 0.34.X |
+| 0.0.2                 | 0.33.X |
+| 0.0.1                 | 0.33.X |
+
