@@ -9,7 +9,8 @@ use crate::{
     },
     raster::{rect::draw_rect, tri::draw_tri},
 };
-use egui::{Pos2, Vec2, ahash::HashMap, epaint::Vertex, vec2};
+use ahash::HashMap;
+use egui::{Pos2, Vec2, epaint::Vertex, vec2};
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_egui_mesh<const SUBPIX_BITS: i32>(
