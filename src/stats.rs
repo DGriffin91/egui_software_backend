@@ -1,7 +1,7 @@
 use crate::alloc::string::ToString;
+use ahash::HashMap;
 use alloc::format;
 use alloc::vec::Vec;
-use egui::ahash::HashMap;
 use std::time::Instant;
 
 #[allow(unused_imports)]

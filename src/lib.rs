@@ -78,7 +78,9 @@ use core::ops::Range;
 
 use alloc::{borrow::Cow, vec, vec::Vec};
 
-use egui::{Color32, Mesh, Pos2, Vec2, ahash::HashMap, vec2};
+use egui::{Color32, Mesh, Pos2, Vec2, vec2};
+
+use ahash::HashMap;
 
 #[cfg(feature = "raster_stats")]
 use crate::stats::RasterStats;
