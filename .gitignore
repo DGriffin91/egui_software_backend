@@ -3,3 +3,6 @@
 .idea
 
 Cargo.lock
+
+# nix stuff
+.direnv
