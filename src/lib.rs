@@ -398,6 +398,129 @@ impl EguiSoftwareRender {
         }
     }
 
+    /// Blit only the tiles whose canvas content changed this frame, resetting
+    /// each to `clear` first, and leave every other tile of `buffer` exactly as
+    /// the previous call left it.
+    ///
+    /// [`Self::blit_canvas_to_buffer`] paints every OCCUPIED tile every frame,
+    /// which for a UI that fills its viewport is the whole frame. This is the
+    /// same work restricted to the tiles that actually changed.
+    ///
+    /// The caller takes on a contract: `buffer` must be the same buffer, with
+    /// the same contents, that the previous call left behind, and `clear` must
+    /// be the colour it would otherwise have cleared the whole frame to. A
+    /// caller that resizes or reallocates must use
+    /// [`Self::blit_canvas_to_buffer`] for that frame instead. The per-tile
+    /// reset is what keeps the composite correct: the canvas is blended OVER
+    /// the destination, so re-blitting onto a tile that already holds the
+    /// previous result would double-blend it.
+    ///
+    /// Returns how many tiles were painted.
+    pub fn blit_dirty_to_buffer(&mut self, buffer: &mut BufferMutRef, clear: [u8; 4]) -> usize {
+        #[cfg(feature = "raster_stats")]
+        let start = std::time::Instant::now();
+
+        if self.canvas.data.is_empty() {
+            #[cfg(feature = "log")]
+            log::error!(
+                "Canvas not initialized, call EguiSoftwareRender::blit_dirty_to_buffer() only after EguiSoftwareRender::render_to_canvas()"
+            );
+            return 0;
+        }
+
+        let width = self.canvas.width;
+        let height = self.canvas.height;
+        assert_eq!(self.canvas.data.len(), width * height);
+        assert_eq!(buffer.data.len(), width * height);
+
+        let tiles_x = self.tiles_dim[0];
+        let painted;
+
+        #[cfg(feature = "rayon")]
+        {
+            use core::sync::atomic::{AtomicUsize, Ordering};
+            use rayon::{
+                iter::{IndexedParallelIterator, ParallelIterator},
+                slice::ParallelSliceMut,
+            };
+
+            let counter = AtomicUsize::new(0);
+            let buf_width = buffer.width;
+            let px_per_row_of_tiles = buf_width * TILE_SIZE;
+
+            buffer
+                .data
+                .par_chunks_mut(px_per_row_of_tiles)
+                .enumerate()
+                .for_each(|(tile_row, tile_height_row)| {
+                    let row_height = tile_height_row.len() / buf_width;
+                    let buffer_tile_row =
+                        &mut BufferMutRef::new(tile_height_row, buf_width, row_height);
+                    let mut n = 0;
+
+                    for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
+                        if mask & Self::DIRTY_TILE_MASK == 0 {
+                            continue;
+                        }
+                        if tile_idx / tiles_x != tile_row {
+                            continue;
+                        }
+
+                        let tile_x = tile_idx % tiles_x;
+                        let x_start = tile_x * TILE_SIZE;
+                        let x_end = (x_start + TILE_SIZE).min(buf_width);
+                        let y_end = TILE_SIZE.min(row_height);
+
+                        for y in 0..y_end {
+                            buffer_tile_row.get_mut_span(x_start, x_end, y).fill(clear);
+                        }
+                        dispatch_simd_impl!(self.simd_impl, |simd_impl| self.blit_tile(
+                            simd_impl,
+                            buffer_tile_row,
+                            x_start,
+                            0,
+                            x_end,
+                            y_end,
+                            tile_row * TILE_SIZE,
+                        ));
+                        n += 1;
+                    }
+                    counter.fetch_add(n, Ordering::Relaxed);
+                });
+            painted = counter.load(Ordering::Relaxed);
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            let mut n = 0;
+            for (tile_idx, &mask) in self.dirty_tiles.iter().enumerate() {
+                if mask & Self::DIRTY_TILE_MASK == 0 {
+                    continue;
+                }
+                let tile_x = tile_idx % tiles_x;
+                let tile_y = tile_idx / tiles_x;
+                let x_start = tile_x * TILE_SIZE;
+                let y_start = tile_y * TILE_SIZE;
+                let x_end = (x_start + TILE_SIZE).min(width);
+                let y_end = (y_start + TILE_SIZE).min(height);
+
+                for y in y_start..y_end {
+                    buffer.get_mut_span(x_start, x_end, y).fill(clear);
+                }
+                dispatch_simd_impl!(self.simd_impl, |simd_impl| self
+                    .blit_tile(simd_impl, buffer, x_start, y_start, x_end, y_end, 0));
+                n += 1;
+            }
+            painted = n;
+        }
+
+        #[cfg(feature = "raster_stats")]
+        {
+            self.stats.blit_canvas_to_buffer = start.elapsed().as_secs_f32();
+        }
+        painted
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn blit_tile(
         &self,
