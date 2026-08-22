@@ -2,7 +2,10 @@
 ![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg) [![Crates.io](https://img.shields.io/crates/v/egui_software_backend.svg)](https://crates.io/crates/egui_software_backend)
 [![Docs](https://docs.rs/egui_software_backend/badge.svg)](https://docs.rs/egui_software_backend/latest/egui_software_backend/)
 
+AI Policy: No LLM-generated content, whether it be code or prose.  [Code of Conduct](https://rust-lang.org/policies/code-of-conduct/) 
+
 ![demo](demo.png)
+
 
 ```rs
 use egui_software_backend::{BufferMutRef, ColorFieldOrder, EguiSoftwareRender};
