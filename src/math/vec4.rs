@@ -288,8 +288,6 @@ impl core::ops::IndexMut<usize> for Vec4 {
     }
 }
 
-impl Eq for Vec4 {}
-
 impl Neg for Vec4 {
     type Output = Self;
 
